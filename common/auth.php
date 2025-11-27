@@ -20,6 +20,16 @@ require_once __DIR__ . '/functions.php';
  */
 function initSession() {
     if (session_status() === PHP_SESSION_NONE) {
+        // Configurazione sessione sicura
+        session_set_cookie_params([
+            'lifetime' => SESSION_TIMEOUT,
+            'path' => '/',
+            'domain' => '',
+            'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on',
+            'httponly' => true,
+            'samesite' => 'Lax'
+        ]);
+        
         session_start();
         
         // Controlla timeout sessione
@@ -45,7 +55,7 @@ function initSession() {
  */
 function isLoggedIn() {
     initSession();
-    return isset($_SESSION['user']) && isset($_SESSION['user']['email']);
+    return isset($_SESSION['user']) && isset($_SESSION['user']['email']) && !empty($_SESSION['user']['email']);
 }
 
 /**
@@ -65,7 +75,7 @@ function getCurrentUser() {
  */
 function isResponsabile() {
     $user = getCurrentUser();
-    return $user && $user['nome_ruolo'] === 'responsabile';
+    return $user && isset($user['nome_ruolo']) && $user['nome_ruolo'] === 'responsabile';
 }
 
 /**
@@ -77,7 +87,9 @@ function isResponsabile() {
 function isResponsabileDiSettore($nome_settore) {
     $user = getCurrentUser();
     return $user && 
+           isset($user['nome_ruolo']) &&
            $user['nome_ruolo'] === 'responsabile' && 
+           isset($user['nome_settore']) &&
            $user['nome_settore'] === $nome_settore;
 }
 
@@ -94,6 +106,14 @@ function isResponsabileDiSettore($nome_settore) {
  */
 function login($email, $password) {
     try {
+        if (empty($email) || empty($password)) {
+            return [
+                'success' => false,
+                'user' => null,
+                'error' => 'Email e password sono obbligatori'
+            ];
+        }
+        
         $conn = getDbConnection();
         
         // Query per recuperare l'utente
@@ -103,12 +123,23 @@ function login($email, $password) {
                 WHERE email = ?";
         
         $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            closeDbConnection($conn);
+            return [
+                'success' => false,
+                'user' => null,
+                'error' => 'Errore di sistema durante il login'
+            ];
+        }
+        
         $stmt->bind_param('s', $email);
         $stmt->execute();
         $result = $stmt->get_result();
         
         if ($row = $result->fetch_assoc()) {
-            // Verifica password (in questo sistema è in chiaro, in produzione usare password_verify)
+            // Verifica password 
+            // NOTA: In questo sistema la password è in chiaro come da specifica del progetto
+            // In produzione si dovrebbe usare password_verify()
             if ($row['password'] === $password) {
                 // Password corretta, crea la sessione
                 initSession();
@@ -117,6 +148,9 @@ function login($email, $password) {
                 unset($row['password']);
                 $_SESSION['user'] = $row;
                 $_SESSION['last_activity'] = time();
+                
+                // Rigenera session ID per sicurezza
+                session_regenerate_id(true);
                 
                 $stmt->close();
                 closeDbConnection($conn);
@@ -139,10 +173,11 @@ function login($email, $password) {
         ];
         
     } catch (Exception $e) {
+        error_log("Login error: " . $e->getMessage());
         return [
             'success' => false,
             'user' => null,
-            'error' => 'Errore durante il login: ' . $e->getMessage()
+            'error' => 'Errore durante il login'
         ];
     }
 }
@@ -172,7 +207,7 @@ function logout() {
 }
 
 // ==========================================
-// CONTROLLO ACCESSI
+// CONTROLLO ACCESSI - PER PAGINE WEB
 // ==========================================
 
 /**
@@ -183,10 +218,11 @@ function logout() {
  */
 function requireLogin($redirect_to = null) {
     if (!isLoggedIn()) {
+        $base_url = BASE_URL;
         if ($redirect_to) {
-            header('Location: ' . BASE_URL . '/frontend/login.php?redirect=' . urlencode($redirect_to));
+            header("Location: {$base_url}/frontend/login.php?redirect=" . urlencode($redirect_to));
         } else {
-            header('Location: ' . BASE_URL . '/frontend/login.php');
+            header("Location: {$base_url}/frontend/login.php");
         }
         exit;
     }
@@ -244,6 +280,12 @@ function registerUser($data) {
             }
         }
         
+        // Trim dei campi stringa
+        $data['email'] = trim($data['email']);
+        $data['nome'] = trim($data['nome']);
+        $data['cognome'] = trim($data['cognome']);
+        $data['nome_ruolo'] = trim($data['nome_ruolo']);
+        
         // Valida email
         if (!validateEmail($data['email'])) {
             return ['success' => false, 'error' => 'Email non valida'];
@@ -256,12 +298,12 @@ function registerUser($data) {
         
         // Valida data di nascita
         if (!validateDate($data['data_nascita'])) {
-            return ['success' => false, 'error' => 'Data di nascita non valida'];
+            return ['success' => false, 'error' => 'Data di nascita non valida (formato: YYYY-MM-DD)'];
         }
         
         // Valida ruolo
         if (!validateRuolo($data['nome_ruolo'])) {
-            return ['success' => false, 'error' => 'Ruolo non valido'];
+            return ['success' => false, 'error' => 'Ruolo non valido. Ruoli ammessi: responsabile, docente, allievo, tecnico'];
         }
         
         // Se è responsabile, richiedi data_inizio
@@ -271,7 +313,7 @@ function registerUser($data) {
         
         // Valida data_inizio se presente
         if (isset($data['data_inizio']) && !empty($data['data_inizio']) && !validateDate($data['data_inizio'])) {
-            return ['success' => false, 'error' => 'Data inizio non valida'];
+            return ['success' => false, 'error' => 'Data inizio non valida (formato: YYYY-MM-DD)'];
         }
         
         $conn = getDbConnection();
@@ -291,10 +333,12 @@ function registerUser($data) {
         $stmt->close();
         
         // Verifica che il settore esista se specificato
-        if (isset($data['nome_settore']) && !empty($data['nome_settore'])) {
+        $nome_settore = null;
+        if (isset($data['nome_settore']) && !empty(trim($data['nome_settore']))) {
+            $nome_settore = trim($data['nome_settore']);
             $sql = "SELECT nome_settore FROM settore WHERE nome_settore = ?";
             $stmt = $conn->prepare($sql);
-            $stmt->bind_param('s', $data['nome_settore']);
+            $stmt->bind_param('s', $nome_settore);
             $stmt->execute();
             $result = $stmt->get_result();
             
@@ -312,9 +356,13 @@ function registerUser($data) {
         
         $stmt = $conn->prepare($sql);
         
-        $foto = $data['foto'] ?? null;
+        if (!$stmt) {
+            closeDbConnection($conn);
+            return ['success' => false, 'error' => 'Errore di sistema durante la registrazione'];
+        }
+        
+        $foto = isset($data['foto']) && !empty($data['foto']) ? $data['foto'] : null;
         $data_inizio = isset($data['data_inizio']) && !empty($data['data_inizio']) ? $data['data_inizio'] : null;
-        $nome_settore = isset($data['nome_settore']) && !empty($data['nome_settore']) ? $data['nome_settore'] : null;
         
         $stmt->bind_param('sssssssss',
             $data['email'],
@@ -330,16 +378,30 @@ function registerUser($data) {
         
         $success = $stmt->execute();
         
-        $stmt->close();
-        closeDbConnection($conn);
-        
-        if ($success) {
-            return ['success' => true, 'error' => ''];
-        } else {
-            return ['success' => false, 'error' => 'Errore durante la registrazione'];
+        if (!$success) {
+            $error = $stmt->error;
+            $stmt->close();
+            closeDbConnection($conn);
+            return ['success' => false, 'error' => 'Errore durante la registrazione: ' . $error];
         }
         
+        $stmt->close();
+        
+        // Se è un nuovo iscritto con settore, aggiorna il contatore del settore
+        if ($nome_settore) {
+            $sql = "UPDATE settore SET num_iscritti = num_iscritti + 1 WHERE nome_settore = ?";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param('s', $nome_settore);
+            $stmt->execute();
+            $stmt->close();
+        }
+        
+        closeDbConnection($conn);
+        
+        return ['success' => true, 'error' => ''];
+        
     } catch (Exception $e) {
-        return ['success' => false, 'error' => 'Errore: ' . $e->getMessage()];
+        error_log("Registration error: " . $e->getMessage());
+        return ['success' => false, 'error' => 'Errore durante la registrazione'];
     }
 }

@@ -30,25 +30,17 @@ while ($row = $sale_result->fetch_assoc()) {
     $sale[] = $row;
 }
 
-// Ottieni lista utenti per gli inviti (solo del settore se non responsabile)
-if (isResponsabile()) {
-    $sql = "SELECT email, nome, cognome, nome_settore FROM iscritto ORDER BY nome, cognome";
-} else {
-    $sql = "SELECT email, nome, cognome, nome_settore FROM iscritto WHERE nome_settore = ? ORDER BY nome, cognome";
-}
-$stmt = $conn->prepare($sql);
-if (!isResponsabile()) {
-    $stmt->bind_param('s', $user['nome_settore']);
-}
-$stmt->execute();
-$utenti_result = $stmt->get_result();
+// Ottieni lista utenti per gli inviti
+$sql = "SELECT email, nome, cognome, nome_settore FROM iscritto ORDER BY nome, cognome";
+$utenti_result = $conn->query($sql);
 $utenti = [];
 while ($row = $utenti_result->fetch_assoc()) {
     $utenti[] = $row;
 }
-$stmt->close();
 
 closeDbConnection($conn);
+
+$isResp = isResponsabile();
 ?>
 <!DOCTYPE html>
 <html lang="it">
@@ -92,6 +84,11 @@ closeDbConnection($conn);
             color: #6c757d;
             font-weight: bold;
         }
+        .time-column {
+            width: 60px;
+            min-width: 60px;
+            background: #f8f9fa;
+        }
     </style>
 </head>
 <body>
@@ -108,7 +105,7 @@ closeDbConnection($conn);
         <div class="card mb-4">
             <div class="card-body">
                 <div class="row align-items-end">
-                    <div class="col-md-3">
+                    <div class="col-md-3 mb-2">
                         <label class="form-label fw-bold">Settore</label>
                         <select class="form-select" id="settoreFilter">
                             <option value="">Seleziona settore</option>
@@ -120,13 +117,13 @@ closeDbConnection($conn);
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-3 mb-2">
                         <label class="form-label fw-bold">Sala</label>
                         <select class="form-select" id="salaFilter">
                             <option value="">Seleziona prima il settore</option>
                         </select>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-4 mb-2">
                         <label class="form-label fw-bold">Settimana</label>
                         <div class="input-group">
                             <button class="btn btn-outline-secondary" id="prevWeek" type="button">
@@ -139,13 +136,13 @@ closeDbConnection($conn);
                             </button>
                         </div>
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-md-2 mb-2">
                         <button class="btn btn-primary w-100" id="loadCalendar">
                             <i class="bi bi-search"></i> Carica
                         </button>
                     </div>
                 </div>
-                <?php if (isResponsabile()): ?>
+                <?php if ($isResp): ?>
                 <div class="row mt-3">
                     <div class="col-12">
                         <button class="btn btn-success" id="createBookingBtn" disabled>
@@ -178,7 +175,7 @@ closeDbConnection($conn);
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        <i class="bi bi-plus-circle"></i> Nuova Prenotazione
+                        <i class="bi bi-plus-circle"></i> <span id="modalTitle">Nuova Prenotazione</span>
                     </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
@@ -186,15 +183,33 @@ closeDbConnection($conn);
                     <form id="bookingForm">
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label class="form-label">Data e Ora Inizio *</label>
-                                <input type="datetime-local" class="form-control" id="booking_datetime" 
-                                       step="3600" required>
-                                <small class="text-muted">Solo ore intere (09:00 - 23:00)</small>
+                                <label class="form-label">Data *</label>
+                                <input type="date" class="form-control" id="booking_date" required>
                             </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Ora Inizio *</label>
+                                <select class="form-select" id="booking_hour" required>
+                                    <?php for($h = 9; $h <= 23; $h++): ?>
+                                        <option value="<?php echo sprintf('%02d', $h); ?>"><?php echo sprintf('%02d:00', $h); ?></option>
+                                    <?php endfor; ?>
+                                </select>
+                                <small class="text-muted">Prenotazioni solo ad ore intere (09:00 - 23:00)</small>
+                            </div>
+                        </div>
+
+                        <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Durata (ore) *</label>
                                 <input type="number" class="form-control" id="booking_duration" 
                                        min="1" max="8" value="2" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Criterio</label>
+                                <select class="form-select" id="booking_criterio">
+                                    <option value="tutti">Tutti</option>
+                                    <option value="settore">Solo settore</option>
+                                    <option value="invito">Solo su invito</option>
+                                </select>
                             </div>
                         </div>
 
@@ -205,21 +220,17 @@ closeDbConnection($conn);
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Criterio</label>
-                            <select class="form-select" id="booking_criterio">
-                                <option value="tutti">Tutti</option>
-                                <option value="settore">Solo settore</option>
-                                <option value="invito">Solo su invito</option>
-                            </select>
-                        </div>
-
-                        <div class="mb-3">
                             <label class="form-label">Invita Partecipanti (opzionale)</label>
-                            <select class="form-select" id="booking_invitati" multiple size="5">
+                            <select class="form-select" id="booking_invitati" multiple size="6">
                                 <?php foreach ($utenti as $u): ?>
+                                    <?php if ($u['email'] !== $user['email']): ?>
                                     <option value="<?php echo htmlspecialchars($u['email']); ?>">
-                                        <?php echo htmlspecialchars($u['nome'] . ' ' . $u['cognome'] . ' (' . $u['nome_settore'] . ')'); ?>
+                                        <?php echo htmlspecialchars($u['nome'] . ' ' . $u['cognome']); ?>
+                                        <?php if ($u['nome_settore']): ?>
+                                            (<?php echo htmlspecialchars($u['nome_settore']); ?>)
+                                        <?php endif; ?>
                                     </option>
+                                    <?php endif; ?>
                                 <?php endforeach; ?>
                             </select>
                             <small class="text-muted">Tieni premuto Ctrl (Cmd su Mac) per selezionare più utenti</small>
@@ -227,9 +238,9 @@ closeDbConnection($conn);
 
                         <div class="alert alert-info">
                             <i class="bi bi-info-circle"></i>
-                            <strong>Sala:</strong> <span id="modal_sala_name"></span><br>
-                            <strong>Settore:</strong> <span id="modal_settore_name"></span><br>
-                            <strong>Capienza:</strong> <span id="modal_sala_capienza"></span> persone
+                            <strong>Sala:</strong> <span id="modal_sala_name">-</span><br>
+                            <strong>Settore:</strong> <span id="modal_settore_name">-</span><br>
+                            <strong>Capienza:</strong> <span id="modal_sala_capienza">-</span> persone
                         </div>
                     </form>
                 </div>
@@ -271,15 +282,21 @@ closeDbConnection($conn);
     <script>
         // Dati sale disponibili dal PHP
         const allSale = <?php echo json_encode($sale); ?>;
+        const isResponsabile = <?php echo $isResp ? 'true' : 'false'; ?>;
+        const currentUserEmail = '<?php echo htmlspecialchars($user['email']); ?>';
+        
         let currentPrenotazioni = [];
         let currentSala = null;
         let currentSettore = null;
         let currentDate = null;
+        let currentCapienza = 0;
         let bookingModal = null;
         let detailsModal = null;
 
         // Inizializzazione
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('Sala prenotazioni initialized');
+            
             bookingModal = new bootstrap.Modal(document.getElementById('bookingModal'));
             detailsModal = new bootstrap.Modal(document.getElementById('detailsModal'));
 
@@ -289,10 +306,12 @@ closeDbConnection($conn);
             document.getElementById('prevWeek').addEventListener('click', navigatePrevWeek);
             document.getElementById('nextWeek').addEventListener('click', navigateNextWeek);
             
-            <?php if (isResponsabile()): ?>
-            document.getElementById('createBookingBtn').addEventListener('click', openBookingModal);
-            document.getElementById('saveBookingBtn').addEventListener('click', saveBooking);
-            <?php endif; ?>
+            if (isResponsabile) {
+                document.getElementById('createBookingBtn').addEventListener('click', function() {
+                    openBookingModal();
+                });
+                document.getElementById('saveBookingBtn').addEventListener('click', saveBooking);
+            }
 
             // Carica sale del settore preselezionato
             if (document.getElementById('settoreFilter').value) {
@@ -334,6 +353,11 @@ closeDbConnection($conn);
             currentSettore = settore;
             currentDate = date;
             
+            // Ottieni capienza
+            const salaSelect = document.getElementById('salaFilter');
+            const selectedOption = salaSelect.options[salaSelect.selectedIndex];
+            currentCapienza = selectedOption.dataset.capienza || 0;
+            
             showLoading();
             
             try {
@@ -343,11 +367,12 @@ closeDbConnection($conn);
                 renderCalendar();
                 
                 // Abilita pulsante crea prenotazione
-                <?php if (isResponsabile()): ?>
-                document.getElementById('createBookingBtn').disabled = false;
-                <?php endif; ?>
+                if (isResponsabile) {
+                    document.getElementById('createBookingBtn').disabled = false;
+                }
                 
             } catch (error) {
+                console.error('Error loading calendar:', error);
                 showAlert('Errore caricamento calendario: ' + error.message, 'danger');
             } finally {
                 hideLoading();
@@ -366,7 +391,7 @@ closeDbConnection($conn);
             let html = '<div class="table-responsive"><table class="table table-bordered mb-0">';
             
             // Header con giorni
-            html += '<thead><tr><th style="width: 80px;">Ora</th>';
+            html += '<thead><tr><th class="time-column text-center">Ora</th>';
             const dayNames = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
             weekDays.forEach((day, index) => {
                 const isCurrentDay = isToday(day);
@@ -378,16 +403,20 @@ closeDbConnection($conn);
             
             // Righe con slot orari
             timeSlots.forEach(time => {
-                html += `<tr><td class="time-label">${time}</td>`;
+                html += `<tr><td class="time-column time-label text-center align-middle">${time}</td>`;
                 
                 weekDays.forEach(day => {
                     const datetime = combineDatetime(day, time);
                     const bookings = getBookingsInSlot(datetime, currentPrenotazioni);
-                    const isPastSlot = isPast(new Date(datetime.replace(' ', 'T')));
+                    const slotDateTime = new Date(datetime.replace(' ', 'T'));
+                    const isPastSlot = isPast(slotDateTime);
                     const isAvailable = bookings.length === 0 && !isPastSlot;
                     
-                    html += `<td class="calendar-time-slot ${isAvailable ? 'clickable' : ''} ${isPastSlot ? 'past-slot' : ''}"
-                                 data-datetime="${datetime}">`;
+                    let cellClass = 'calendar-time-slot';
+                    if (isAvailable && isResponsabile) cellClass += ' clickable';
+                    if (isPastSlot) cellClass += ' past-slot';
+                    
+                    html += `<td class="${cellClass}" data-datetime="${datetime}">`;
                     
                     // Mostra prenotazioni in questo slot
                     bookings.forEach(booking => {
@@ -397,7 +426,7 @@ closeDbConnection($conn);
                         if (prenStartTime === time) {
                             html += `<div class="booking-block" data-booking-id="${booking.id}">
                                 <strong>${escapeHtml(booking.attivita || 'Prenotazione')}</strong><br>
-                                <small>${booking.durata}h - ${escapeHtml(booking.responsabile_nome)}</small>
+                                <small>${booking.durata}h - ${escapeHtml(booking.responsabile_nome || '')}</small>
                             </div>`;
                         }
                     });
@@ -413,14 +442,14 @@ closeDbConnection($conn);
             document.getElementById('calendarContainer').innerHTML = html;
             
             // Aggiungi event listeners
-            document.querySelectorAll('.calendar-time-slot.clickable').forEach(el => {
-                el.addEventListener('click', function() {
-                    <?php if (isResponsabile()): ?>
-                    const datetime = this.dataset.datetime;
-                    openBookingModal(datetime);
-                    <?php endif; ?>
+            if (isResponsabile) {
+                document.querySelectorAll('.calendar-time-slot.clickable').forEach(el => {
+                    el.addEventListener('click', function() {
+                        const datetime = this.dataset.datetime;
+                        openBookingModal(datetime);
+                    });
                 });
-            });
+            }
             
             document.querySelectorAll('.booking-block').forEach(el => {
                 el.addEventListener('click', function(e) {
@@ -447,45 +476,56 @@ closeDbConnection($conn);
 
         // Apri modal nuova prenotazione
         function openBookingModal(datetime = null) {
-            document.getElementById('modal_sala_name').textContent = currentSala;
-            document.getElementById('modal_settore_name').textContent = currentSettore;
-            
-            const salaSelect = document.getElementById('salaFilter');
-            const selectedOption = salaSelect.options[salaSelect.selectedIndex];
-            document.getElementById('modal_sala_capienza').textContent = 
-                selectedOption.dataset.capienza || 'N/A';
-            
-            // Imposta datetime se fornito
-            if (datetime) {
-                const dt = new Date(datetime.replace(' ', 'T'));
-                const formatted = dt.toISOString().slice(0, 16);
-                document.getElementById('booking_datetime').value = formatted;
-            }
+            document.getElementById('modal_sala_name').textContent = currentSala || '-';
+            document.getElementById('modal_settore_name').textContent = currentSettore || '-';
+            document.getElementById('modal_sala_capienza').textContent = currentCapienza || '-';
             
             // Reset form
             document.getElementById('bookingForm').reset();
+            
+            // Imposta datetime se fornito
+            if (datetime) {
+                const parts = datetime.split(' ');
+                if (parts.length >= 2) {
+                    document.getElementById('booking_date').value = parts[0];
+                    const hour = parts[1].split(':')[0];
+                    document.getElementById('booking_hour').value = hour;
+                }
+            } else if (currentDate) {
+                document.getElementById('booking_date').value = currentDate;
+            }
             
             bookingModal.show();
         }
 
         // Salva prenotazione
         async function saveBooking() {
-            const datetime = document.getElementById('booking_datetime').value;
+            const date = document.getElementById('booking_date').value;
+            const hour = document.getElementById('booking_hour').value;
             const duration = parseInt(document.getElementById('booking_duration').value);
-            const activity = document.getElementById('booking_activity').value;
+            const activity = document.getElementById('booking_activity').value.trim();
             const criterio = document.getElementById('booking_criterio').value;
             
-            if (!datetime || !duration) {
+            // Validazione
+            if (!date || !hour || !duration) {
                 showAlert('Compila tutti i campi obbligatori', 'warning');
                 return;
             }
             
-            // Converti datetime in formato MySQL
-            const dt = new Date(datetime);
-            const mysqlDatetime = dt.getFullYear() + '-' +
-                String(dt.getMonth() + 1).padStart(2, '0') + '-' +
-                String(dt.getDate()).padStart(2, '0') + ' ' +
-                String(dt.getHours()).padStart(2, '0') + ':00:00';
+            if (!currentSala || !currentSettore) {
+                showAlert('Seleziona prima una sala', 'warning');
+                return;
+            }
+            
+            if (duration < 1 || duration > 8) {
+                showAlert('La durata deve essere tra 1 e 8 ore', 'warning');
+                return;
+            }
+            
+            // Costruisci datetime nel formato corretto
+            const mysqlDatetime = `${date} ${hour}:00:00`;
+            
+            console.log('Saving booking with datetime:', mysqlDatetime);
             
             // Raccogli invitati
             const invitatiSelect = document.getElementById('booking_invitati');
@@ -501,18 +541,23 @@ closeDbConnection($conn);
                 invitati: invitati
             };
             
+            console.log('Booking data:', data);
+            
             try {
                 showLoading();
                 const response = await createPrenotazione(data);
                 
+                console.log('Create response:', response);
+                
                 if (response.success) {
                     showAlert('Prenotazione creata con successo!', 'success');
                     bookingModal.hide();
-                    loadCalendar(); // Ricarica calendario
+                    await loadCalendar(); // Ricarica calendario
                 } else {
                     showAlert(response.error || 'Errore durante la creazione', 'danger');
                 }
             } catch (error) {
+                console.error('Save booking error:', error);
                 showAlert('Errore: ' + error.message, 'danger');
             } finally {
                 hideLoading();
@@ -520,20 +565,23 @@ closeDbConnection($conn);
         }
 
         // Mostra dettagli prenotazione
-        async function showBookingDetails(id) {
+        function showBookingDetails(id) {
             const booking = currentPrenotazioni.find(p => p.id == id);
-            if (!booking) return;
+            if (!booking) {
+                console.error('Booking not found:', id);
+                return;
+            }
             
-            const isOwner = '<?php echo $user['email']; ?>' === booking.email_responsabile;
+            const isOwner = currentUserEmail === booking.email_responsabile;
             
             let html = `
                 <div class="mb-3">
-                    <strong>Attività:</strong> ${escapeHtml(booking.attivita || 'N/A')}<br>
-                    <strong>Data e Ora:</strong> ${formatDate(booking.data_ora_inizio, true)}<br>
-                    <strong>Durata:</strong> ${booking.durata} ore<br>
-                    <strong>Sala:</strong> ${escapeHtml(booking.nome_sala)}<br>
-                    <strong>Settore:</strong> ${escapeHtml(booking.nome_settore)}<br>
-                    <strong>Responsabile:</strong> ${escapeHtml(booking.responsabile_nome + ' ' + booking.responsabile_cognome)}
+                    <p><strong>Attività:</strong> ${escapeHtml(booking.attivita || 'N/A')}</p>
+                    <p><strong>Data e Ora:</strong> ${formatDate(booking.data_ora_inizio, true)}</p>
+                    <p><strong>Durata:</strong> ${booking.durata} ore</p>
+                    <p><strong>Sala:</strong> ${escapeHtml(booking.nome_sala)}</p>
+                    <p><strong>Settore:</strong> ${escapeHtml(booking.nome_settore)}</p>
+                    <p><strong>Responsabile:</strong> ${escapeHtml((booking.responsabile_nome || '') + ' ' + (booking.responsabile_cognome || ''))}</p>
                 </div>
             `;
             
@@ -542,13 +590,11 @@ closeDbConnection($conn);
             // Azioni disponibili
             let actions = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>';
             
-            <?php if (isResponsabile()): ?>
-            if (isOwner) {
+            if (isResponsabile && isOwner) {
                 actions += ` <button type="button" class="btn btn-danger" onclick="deleteBooking(${id})">
                     <i class="bi bi-trash"></i> Elimina
                 </button>`;
             }
-            <?php endif; ?>
             
             document.getElementById('detailsActions').innerHTML = actions;
             
@@ -566,7 +612,7 @@ closeDbConnection($conn);
                 if (response.success) {
                     showAlert('Prenotazione eliminata', 'success');
                     detailsModal.hide();
-                    loadCalendar();
+                    await loadCalendar();
                 } else {
                     showAlert(response.error || 'Errore durante l\'eliminazione', 'danger');
                 }

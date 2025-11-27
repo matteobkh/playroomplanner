@@ -17,7 +17,7 @@ initSession();
 // Header per API REST JSON
 header('Content-Type: application/json; charset=utf-8');
 
-// Permetti CORS se necessario (commentare in produzione)
+// Permetti CORS se necessario
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
@@ -29,33 +29,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // ==========================================
-// ROUTING
+// ROUTING MIGLIORATO
 // ==========================================
 
-// Ottieni il metodo HTTP e il path
+// Ottieni il metodo HTTP
 $method = $_SERVER['REQUEST_METHOD'];
-$path = $_SERVER['PATH_INFO'] ?? $_SERVER['REQUEST_URI'] ?? '/';
 
-// Rimuovi query string dal path
-$path = parse_url($path, PHP_URL_PATH);
+// Ottieni il path in modo robusto
+$requestUri = $_SERVER['REQUEST_URI'];
 
-// Rimuovi prefisso /backend/api.php se presente
-$path = preg_replace('#^/playroomplanner/backend/api\.php#', '', $path);
-$path = preg_replace('#^/backend/api\.php#', '', $path);
+// Rimuovi query string
+$path = parse_url($requestUri, PHP_URL_PATH);
 
-// Se il path è vuoto, imposta a /
-if (empty($path) || $path === '/') {
-    jsonResponse(['message' => 'API Play Room Planner', 'version' => '1.0']);
+// Rimuovi il prefisso del progetto e api.php
+// Gestisce sia /playroomplanner/backend/api.php/... che /backend/api.php/...
+$patterns = [
+    '#^/playroomplanner/backend/api\.php#i',
+    '#^/backend/api\.php#i',
+    '#^/api\.php#i'
+];
+
+foreach ($patterns as $pattern) {
+    $path = preg_replace($pattern, '', $path);
+}
+
+// Rimuovi slash iniziale e finale
+$path = trim($path, '/');
+
+// Se il path è vuoto, restituisci info API
+if (empty($path)) {
+    jsonResponse(['message' => 'API Play Room Planner', 'version' => '1.0', 'status' => 'online']);
 }
 
 // Split del path in segmenti
-$segments = array_filter(explode('/', $path));
-$segments = array_values($segments); // Re-index array
+$segments = explode('/', $path);
+$segments = array_values(array_filter($segments)); // Re-index e rimuovi vuoti
 
 // Ottieni il body della richiesta per POST/PUT
 $input = null;
 if (in_array($method, ['POST', 'PUT'])) {
-    $input = json_decode(file_get_contents('php://input'), true);
+    $rawInput = file_get_contents('php://input');
+    $input = json_decode($rawInput, true);
+    
+    // Se JSON non valido, prova con form data
+    if ($input === null && !empty($rawInput)) {
+        parse_str($rawInput, $input);
+    }
+}
+
+// Debug mode: log delle richieste (commentare in produzione)
+if (DEBUG_MODE) {
+    error_log("API Request: $method $path");
+    error_log("Segments: " . json_encode($segments));
+    if ($input) {
+        error_log("Input: " . json_encode($input));
+    }
 }
 
 // ==========================================
@@ -63,71 +91,153 @@ if (in_array($method, ['POST', 'PUT'])) {
 // ==========================================
 
 try {
-    // AUTENTICAZIONE
-    if ($segments[0] === 'login' && $method === 'POST') {
-        handleLogin($input);
-    }
-    elseif ($segments[0] === 'logout' && $method === 'POST') {
-        handleLogout();
-    }
-    elseif ($segments[0] === 'current-user' && $method === 'GET') {
-        handleCurrentUser();
-    }
+    $resource = $segments[0] ?? '';
     
-    // UTENTI
-    elseif ($segments[0] === 'users') {
-        if ($method === 'POST') {
-            handleCreateUser($input);
-        } elseif ($method === 'GET' && isset($segments[1])) {
-            handleGetUser($segments[1]);
-        } elseif ($method === 'PUT' && isset($segments[1])) {
-            handleUpdateUser($segments[1], $input);
-        } elseif ($method === 'DELETE' && isset($segments[1])) {
-            handleDeleteUser($segments[1]);
-        } else {
-            jsonError('Endpoint non valido', 404);
-        }
-    }
-    
-    // PRENOTAZIONI
-    elseif ($segments[0] === 'prenotazioni') {
-        if ($method === 'POST') {
-            handleCreatePrenotazione($input);
-        } elseif ($method === 'PUT' && isset($segments[1])) {
-            handleUpdatePrenotazione($segments[1], $input);
-        } elseif ($method === 'DELETE' && isset($segments[1])) {
-            handleDeletePrenotazione($segments[1]);
-        } else {
-            jsonError('Endpoint non valido', 404);
-        }
-    }
-    
-    // SALA PRENOTAZIONI SETTIMANALI
-    elseif ($segments[0] === 'sala' && isset($segments[1]) && $segments[2] === 'week' && $method === 'GET') {
-        handleGetSalaWeek($segments[1]);
-    }
-    
-    // USER IMPEGNI SETTIMANALI
-    elseif ($segments[0] === 'user' && isset($segments[1]) && $segments[2] === 'week' && $method === 'GET') {
-        handleGetUserWeek($segments[1]);
-    }
-    
-    // INVITI
-    elseif ($segments[0] === 'inviti' && isset($segments[1]) && isset($segments[2]) && $segments[3] === 'risposta' && $method === 'POST') {
-        handleRispostaInvito($segments[1], $segments[2], $input);
-    }
-    
-    // STATISTICHE
-    elseif ($segments[0] === 'operation' && $segments[1] === 'stats' && $method === 'GET') {
-        handleGetStats();
-    }
-    
-    // ROUTE NON TROVATA
-    else {
-        jsonError('Endpoint non trovato', 404);
+    switch ($resource) {
+        // ==========================================
+        // AUTENTICAZIONE
+        // ==========================================
+        case 'login':
+            if ($method === 'POST') {
+                handleLogin($input);
+            } else {
+                jsonError('Metodo non consentito', 405);
+            }
+            break;
+            
+        case 'logout':
+            if ($method === 'POST') {
+                handleLogout();
+            } else {
+                jsonError('Metodo non consentito', 405);
+            }
+            break;
+            
+        case 'current-user':
+            if ($method === 'GET') {
+                handleCurrentUser();
+            } else {
+                jsonError('Metodo non consentito', 405);
+            }
+            break;
+        
+        // ==========================================
+        // UTENTI
+        // ==========================================
+        case 'users':
+            if ($method === 'POST' && count($segments) === 1) {
+                // POST /users - Registrazione
+                handleCreateUser($input);
+            } elseif ($method === 'GET' && isset($segments[1])) {
+                // GET /users/{email}
+                handleGetUser(urldecode($segments[1]));
+            } elseif ($method === 'PUT' && isset($segments[1])) {
+                // PUT /users/{email}
+                handleUpdateUser(urldecode($segments[1]), $input);
+            } elseif ($method === 'DELETE' && isset($segments[1])) {
+                // DELETE /users/{email}
+                handleDeleteUser(urldecode($segments[1]));
+            } else {
+                jsonError('Endpoint non valido', 404);
+            }
+            break;
+        
+        // ==========================================
+        // PRENOTAZIONI
+        // ==========================================
+        case 'prenotazioni':
+            if ($method === 'POST' && count($segments) === 1) {
+                // POST /prenotazioni
+                handleCreatePrenotazione($input);
+            } elseif ($method === 'GET' && isset($segments[1])) {
+                // GET /prenotazioni/{id}
+                handleGetPrenotazione((int)$segments[1]);
+            } elseif ($method === 'PUT' && isset($segments[1])) {
+                // PUT /prenotazioni/{id}
+                handleUpdatePrenotazione((int)$segments[1], $input);
+            } elseif ($method === 'DELETE' && isset($segments[1])) {
+                // DELETE /prenotazioni/{id}
+                handleDeletePrenotazione((int)$segments[1]);
+            } else {
+                jsonError('Endpoint non valido', 404);
+            }
+            break;
+        
+        // ==========================================
+        // SALA PRENOTAZIONI SETTIMANALI
+        // ==========================================
+        case 'sala':
+            // GET /sala/{nome_sala}/week?date=...&settore=...
+            if ($method === 'GET' && isset($segments[1]) && isset($segments[2]) && $segments[2] === 'week') {
+                handleGetSalaWeek(urldecode($segments[1]));
+            } else {
+                jsonError('Endpoint non valido', 404);
+            }
+            break;
+        
+        // ==========================================
+        // USER IMPEGNI SETTIMANALI
+        // ==========================================
+        case 'user':
+            // GET /user/{email}/week?date=...
+            if ($method === 'GET' && isset($segments[1]) && isset($segments[2]) && $segments[2] === 'week') {
+                handleGetUserWeek(urldecode($segments[1]));
+            } else {
+                jsonError('Endpoint non valido', 404);
+            }
+            break;
+        
+        // ==========================================
+        // INVITI
+        // ==========================================
+        case 'inviti':
+            // POST /inviti/{prenotazione_id}/{email}/risposta
+            if ($method === 'POST' && isset($segments[1]) && isset($segments[2]) && isset($segments[3]) && $segments[3] === 'risposta') {
+                handleRispostaInvito((int)$segments[1], urldecode($segments[2]), $input);
+            } else {
+                jsonError('Endpoint non valido', 404);
+            }
+            break;
+        
+        // ==========================================
+        // STATISTICHE
+        // ==========================================
+        case 'operation':
+            if ($method === 'GET' && isset($segments[1]) && $segments[1] === 'stats') {
+                handleGetStats();
+            } else {
+                jsonError('Endpoint non valido', 404);
+            }
+            break;
+        
+        // ==========================================
+        // SETTORI E SALE (nuovi endpoint)
+        // ==========================================
+        case 'settori':
+            if ($method === 'GET') {
+                handleGetSettori();
+            } else {
+                jsonError('Metodo non consentito', 405);
+            }
+            break;
+            
+        case 'sale':
+            if ($method === 'GET') {
+                handleGetSale();
+            } else {
+                jsonError('Metodo non consentito', 405);
+            }
+            break;
+        
+        // ==========================================
+        // ROUTE NON TROVATA
+        // ==========================================
+        default:
+            jsonError('Endpoint non trovato: ' . $path, 404);
     }
     
 } catch (Exception $e) {
+    error_log("API Error: " . $e->getMessage());
     jsonError('Errore del server: ' . $e->getMessage(), 500);
 }
 
@@ -178,7 +288,7 @@ function handleCreateUser($input) {
 }
 
 function handleGetUser($email) {
-    requireLogin();
+    if (!requireLoginApi()) return;
     
     $conn = getDbConnection();
     
@@ -204,12 +314,13 @@ function handleGetUser($email) {
 }
 
 function handleUpdateUser($email, $input) {
-    requireLogin();
+    if (!requireLoginApi()) return;
     
     // Verifica che l'utente possa modificare solo il proprio profilo o sia responsabile
     $currentUser = getCurrentUser();
     if ($currentUser['email'] !== $email && !isResponsabile()) {
         jsonError('Non autorizzato', 403);
+        return;
     }
     
     $conn = getDbConnection();
@@ -219,21 +330,23 @@ function handleUpdateUser($email, $input) {
     $types = '';
     $params = [];
     
-    if (isset($input['nome'])) {
+    if (isset($input['nome']) && !empty(trim($input['nome']))) {
         $updates[] = 'nome = ?';
         $types .= 's';
-        $params[] = $input['nome'];
+        $params[] = trim($input['nome']);
     }
     
-    if (isset($input['cognome'])) {
+    if (isset($input['cognome']) && !empty(trim($input['cognome']))) {
         $updates[] = 'cognome = ?';
         $types .= 's';
-        $params[] = $input['cognome'];
+        $params[] = trim($input['cognome']);
     }
     
     if (isset($input['password']) && !empty($input['password'])) {
         if (!validatePassword($input['password'])) {
+            closeDbConnection($conn);
             jsonError('La password deve essere di almeno 8 caratteri');
+            return;
         }
         $updates[] = 'password = ?';
         $types .= 's';
@@ -243,11 +356,13 @@ function handleUpdateUser($email, $input) {
     if (isset($input['foto'])) {
         $updates[] = 'foto = ?';
         $types .= 's';
-        $params[] = $input['foto'];
+        $params[] = $input['foto'] ?: null;
     }
     
     if (empty($updates)) {
+        closeDbConnection($conn);
         jsonError('Nessun campo da aggiornare');
+        return;
     }
     
     $sql = "UPDATE iscritto SET " . implode(', ', $updates) . " WHERE email = ?";
@@ -262,27 +377,34 @@ function handleUpdateUser($email, $input) {
         
         // Aggiorna la sessione se l'utente ha modificato il proprio profilo
         if ($currentUser['email'] === $email) {
-            $_SESSION['user']['nome'] = $input['nome'] ?? $currentUser['nome'];
-            $_SESSION['user']['cognome'] = $input['cognome'] ?? $currentUser['cognome'];
-            if (isset($input['foto'])) {
-                $_SESSION['user']['foto'] = $input['foto'];
-            }
+            if (isset($input['nome'])) $_SESSION['user']['nome'] = trim($input['nome']);
+            if (isset($input['cognome'])) $_SESSION['user']['cognome'] = trim($input['cognome']);
+            if (isset($input['foto'])) $_SESSION['user']['foto'] = $input['foto'];
         }
         
         closeDbConnection($conn);
         jsonSuccess(['message' => 'Profilo aggiornato con successo']);
     } else {
+        $error = $stmt->error;
         $stmt->close();
         closeDbConnection($conn);
-        jsonError('Errore durante l\'aggiornamento');
+        jsonError('Errore durante l\'aggiornamento: ' . $error);
     }
 }
 
 function handleDeleteUser($email) {
-    requireResponsabile();
+    if (!requireResponsabileApi()) return;
     
     $conn = getDbConnection();
     
+    // Prima elimina gli inviti dell'utente
+    $sql = "DELETE FROM invito WHERE email_iscritto = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param('s', $email);
+    $stmt->execute();
+    $stmt->close();
+    
+    // Poi elimina l'utente
     $sql = "DELETE FROM iscritto WHERE email = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param('s', $email);
@@ -298,9 +420,10 @@ function handleDeleteUser($email) {
             jsonError('Utente non trovato', 404);
         }
     } else {
+        $error = $stmt->error;
         $stmt->close();
         closeDbConnection($conn);
-        jsonError('Errore durante l\'eliminazione');
+        jsonError('Errore durante l\'eliminazione: ' . $error);
     }
 }
 
@@ -309,28 +432,44 @@ function handleDeleteUser($email) {
 // ==========================================
 
 function handleCreatePrenotazione($input) {
-    requireResponsabile();
+    if (!requireResponsabileApi()) return;
     
     $currentUser = getCurrentUser();
+    
+    // Debug: log dei dati ricevuti
+    error_log("handleCreatePrenotazione - Input ricevuto: " . json_encode($input));
     
     // Validazione dati obbligatori
     $required = ['data_ora_inizio', 'durata', 'nome_settore', 'nome_sala'];
     foreach ($required as $field) {
-        if (!isset($input[$field]) || empty($input[$field])) {
+        if (!isset($input[$field]) || $input[$field] === '' || $input[$field] === null) {
             jsonError("Il campo $field è obbligatorio");
+            return;
         }
     }
     
+    // Normalizza il formato datetime
+    $data_ora_inizio = normalizeDateTime($input['data_ora_inizio']);
+    if (!$data_ora_inizio) {
+        jsonError('Formato data/ora non valido. Usa YYYY-MM-DD HH:MM:SS');
+        return;
+    }
+    
+    error_log("Data normalizzata: $data_ora_inizio");
+    
     // Valida orario
-    $timeValidation = validateBookingTime($input['data_ora_inizio']);
+    $timeValidation = validateBookingTime($data_ora_inizio);
     if (!$timeValidation['valid']) {
         jsonError($timeValidation['error']);
+        return;
     }
     
     // Valida durata
-    $durationValidation = validateBookingDuration($input['durata']);
+    $durata = (int)$input['durata'];
+    $durationValidation = validateBookingDuration($durata);
     if (!$durationValidation['valid']) {
         jsonError($durationValidation['error']);
+        return;
     }
     
     $conn = getDbConnection();
@@ -346,6 +485,7 @@ function handleCreatePrenotazione($input) {
         $stmt->close();
         closeDbConnection($conn);
         jsonError('Sala non trovata');
+        return;
     }
     
     $sala = $result->fetch_assoc();
@@ -353,12 +493,18 @@ function handleCreatePrenotazione($input) {
     
     // Verifica sovrapposizioni con altre prenotazioni della stessa sala
     $overlapCheck = checkRoomOverlap($conn, $input['nome_sala'], $input['nome_settore'], 
-                                     $input['data_ora_inizio'], $input['durata']);
+                                     $data_ora_inizio, $durata);
     
     if ($overlapCheck['overlap']) {
         closeDbConnection($conn);
         jsonError('Esiste già una prenotazione sovrapposta per questa sala');
+        return;
     }
+    
+    // Prepara i dati per l'inserimento
+    $attivita = isset($input['attivita']) && !empty($input['attivita']) ? $input['attivita'] : null;
+    $num_iscritti = isset($input['num_iscritti']) ? (int)$input['num_iscritti'] : null;
+    $criterio = isset($input['criterio']) && !empty($input['criterio']) ? $input['criterio'] : 'tutti';
     
     // Inserisci la prenotazione
     $sql = "INSERT INTO prenotazione (data_ora_inizio, durata, attivita, num_iscritti, 
@@ -367,13 +513,15 @@ function handleCreatePrenotazione($input) {
     
     $stmt = $conn->prepare($sql);
     
-    $attivita = $input['attivita'] ?? null;
-    $num_iscritti = $input['num_iscritti'] ?? null;
-    $criterio = $input['criterio'] ?? 'tutti';
+    if (!$stmt) {
+        closeDbConnection($conn);
+        jsonError('Errore preparazione query: ' . $conn->error);
+        return;
+    }
     
-    $stmt->bind_param('sisisiis', 
-        $input['data_ora_inizio'],
-        $input['durata'],
+    $stmt->bind_param('sissssss', 
+        $data_ora_inizio,
+        $durata,
         $attivita,
         $num_iscritti,
         $criterio,
@@ -383,53 +531,106 @@ function handleCreatePrenotazione($input) {
     );
     
     if (!$stmt->execute()) {
+        $error = $stmt->error;
         $stmt->close();
         closeDbConnection($conn);
-        jsonError('Errore durante la creazione della prenotazione');
+        jsonError('Errore durante la creazione della prenotazione: ' . $error);
+        return;
     }
     
     $prenotazione_id = $conn->insert_id;
     $stmt->close();
     
+    error_log("Prenotazione creata con ID: $prenotazione_id");
+    
     // Gestisci inviti se presenti
     if (isset($input['invitati']) && is_array($input['invitati']) && count($input['invitati']) > 0) {
-        // Verifica capienza
-        if (count($input['invitati']) > $sala['capienza']) {
-            // Elimina la prenotazione appena creata
-            $sql = "DELETE FROM prenotazione WHERE id = ?";
-            $stmt = $conn->prepare($sql);
-            $stmt->bind_param('i', $prenotazione_id);
-            $stmt->execute();
-            $stmt->close();
+        // Filtra invitati vuoti
+        $invitati = array_filter($input['invitati'], function($email) {
+            return !empty(trim($email));
+        });
+        
+        if (count($invitati) > 0) {
+            // Verifica capienza
+            if (count($invitati) > $sala['capienza']) {
+                // Elimina la prenotazione appena creata
+                $sql = "DELETE FROM prenotazione WHERE id = ?";
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param('i', $prenotazione_id);
+                $stmt->execute();
+                $stmt->close();
+                
+                closeDbConnection($conn);
+                jsonError('Il numero di invitati (' . count($invitati) . ') supera la capienza della sala (' . $sala['capienza'] . ')');
+                return;
+            }
             
-            closeDbConnection($conn);
-            jsonError('Il numero di invitati supera la capienza della sala (' . $sala['capienza'] . ')');
+            // Inserisci gli inviti
+            $sql = "INSERT INTO invito (email_iscritto, id_prenotazione) VALUES (?, ?)";
+            $stmt = $conn->prepare($sql);
+            
+            $invitatiInseriti = 0;
+            foreach ($invitati as $email) {
+                $email = trim($email);
+                // Verifica che l'utente esista
+                $checkSql = "SELECT email FROM iscritto WHERE email = ?";
+                $checkStmt = $conn->prepare($checkSql);
+                $checkStmt->bind_param('s', $email);
+                $checkStmt->execute();
+                $checkResult = $checkStmt->get_result();
+                
+                if ($checkResult->num_rows > 0) {
+                    $stmt->bind_param('si', $email, $prenotazione_id);
+                    if ($stmt->execute()) {
+                        $invitatiInseriti++;
+                    }
+                }
+                $checkStmt->close();
+            }
+            
+            $stmt->close();
+            error_log("Invitati inseriti: $invitatiInseriti");
         }
-        
-        // Inserisci gli inviti
-        $sql = "INSERT INTO invito (email_iscritto, id_prenotazione) VALUES (?, ?)";
-        $stmt = $conn->prepare($sql);
-        
-        foreach ($input['invitati'] as $email) {
-            $stmt->bind_param('si', $email, $prenotazione_id);
-            $stmt->execute();
-        }
-        
-        $stmt->close();
     }
     
     closeDbConnection($conn);
     jsonSuccess(['message' => 'Prenotazione creata con successo', 'prenotazione_id' => $prenotazione_id], 201);
 }
 
+function handleGetPrenotazione($id) {
+    if (!requireLoginApi()) return;
+    
+    $conn = getDbConnection();
+    
+    $sql = "SELECT p.*, i.nome AS responsabile_nome, i.cognome AS responsabile_cognome
+            FROM prenotazione p
+            JOIN iscritto i ON p.email_responsabile = i.email
+            WHERE p.id = ?";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param('i', $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($row = $result->fetch_assoc()) {
+        $stmt->close();
+        closeDbConnection($conn);
+        jsonSuccess(['prenotazione' => $row]);
+    } else {
+        $stmt->close();
+        closeDbConnection($conn);
+        jsonError('Prenotazione non trovata', 404);
+    }
+}
+
 function handleUpdatePrenotazione($id, $input) {
-    requireLogin();
+    if (!requireLoginApi()) return;
     
     $currentUser = getCurrentUser();
     $conn = getDbConnection();
     
-    // Verifica che la prenotazione esista e che l'utente sia il responsabile
-    $sql = "SELECT email_responsabile, nome_sala, nome_settore FROM prenotazione WHERE id = ?";
+    // Verifica che la prenotazione esista e ottieni i dati
+    $sql = "SELECT * FROM prenotazione WHERE id = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param('i', $id);
     $stmt->execute();
@@ -439,15 +640,17 @@ function handleUpdatePrenotazione($id, $input) {
         $stmt->close();
         closeDbConnection($conn);
         jsonError('Prenotazione non trovata', 404);
+        return;
     }
     
     $prenotazione = $result->fetch_assoc();
     $stmt->close();
     
-    // Solo il responsabile può modificare
+    // Solo il responsabile che ha creato può modificare
     if ($prenotazione['email_responsabile'] !== $currentUser['email']) {
         closeDbConnection($conn);
-        jsonError('Non autorizzato', 403);
+        jsonError('Non autorizzato a modificare questa prenotazione', 403);
+        return;
     }
     
     // Campi modificabili
@@ -455,55 +658,63 @@ function handleUpdatePrenotazione($id, $input) {
     $types = '';
     $params = [];
     
-    if (isset($input['data_ora_inizio'])) {
-        $timeValidation = validateBookingTime($input['data_ora_inizio']);
+    $new_inizio = $prenotazione['data_ora_inizio'];
+    $new_durata = $prenotazione['durata'];
+    
+    if (isset($input['data_ora_inizio']) && !empty($input['data_ora_inizio'])) {
+        $new_inizio = normalizeDateTime($input['data_ora_inizio']);
+        if (!$new_inizio) {
+            closeDbConnection($conn);
+            jsonError('Formato data/ora non valido');
+            return;
+        }
+        
+        $timeValidation = validateBookingTime($new_inizio);
         if (!$timeValidation['valid']) {
             closeDbConnection($conn);
             jsonError($timeValidation['error']);
+            return;
         }
         
         $updates[] = 'data_ora_inizio = ?';
         $types .= 's';
-        $params[] = $input['data_ora_inizio'];
+        $params[] = $new_inizio;
     }
     
     if (isset($input['durata'])) {
-        $durationValidation = validateBookingDuration($input['durata']);
+        $new_durata = (int)$input['durata'];
+        $durationValidation = validateBookingDuration($new_durata);
         if (!$durationValidation['valid']) {
             closeDbConnection($conn);
             jsonError($durationValidation['error']);
+            return;
         }
         
         $updates[] = 'durata = ?';
         $types .= 'i';
-        $params[] = $input['durata'];
+        $params[] = $new_durata;
     }
     
     if (isset($input['attivita'])) {
         $updates[] = 'attivita = ?';
         $types .= 's';
-        $params[] = $input['attivita'];
+        $params[] = $input['attivita'] ?: null;
+    }
+    
+    if (isset($input['criterio'])) {
+        $updates[] = 'criterio = ?';
+        $types .= 's';
+        $params[] = $input['criterio'];
     }
     
     if (empty($updates)) {
         closeDbConnection($conn);
         jsonError('Nessun campo da aggiornare');
+        return;
     }
     
-    // Se modifichiamo data o durata, verifica sovrapposizioni
+    // Verifica sovrapposizioni se modifichiamo data o durata
     if (isset($input['data_ora_inizio']) || isset($input['durata'])) {
-        // Ottieni i dati attuali se non forniti
-        $sql = "SELECT data_ora_inizio, durata FROM prenotazione WHERE id = ?";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param('i', $id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $current = $result->fetch_assoc();
-        $stmt->close();
-        
-        $new_inizio = $input['data_ora_inizio'] ?? $current['data_ora_inizio'];
-        $new_durata = $input['durata'] ?? $current['durata'];
-        
         $overlapCheck = checkRoomOverlap($conn, $prenotazione['nome_sala'], 
                                         $prenotazione['nome_settore'], 
                                         $new_inizio, $new_durata, $id);
@@ -511,6 +722,7 @@ function handleUpdatePrenotazione($id, $input) {
         if ($overlapCheck['overlap']) {
             closeDbConnection($conn);
             jsonError('La modifica crea una sovrapposizione con un\'altra prenotazione');
+            return;
         }
     }
     
@@ -527,14 +739,15 @@ function handleUpdatePrenotazione($id, $input) {
         closeDbConnection($conn);
         jsonSuccess(['message' => 'Prenotazione aggiornata']);
     } else {
+        $error = $stmt->error;
         $stmt->close();
         closeDbConnection($conn);
-        jsonError('Errore durante l\'aggiornamento');
+        jsonError('Errore durante l\'aggiornamento: ' . $error);
     }
 }
 
 function handleDeletePrenotazione($id) {
-    requireLogin();
+    if (!requireLoginApi()) return;
     
     $currentUser = getCurrentUser();
     $conn = getDbConnection();
@@ -550,6 +763,7 @@ function handleDeletePrenotazione($id) {
         $stmt->close();
         closeDbConnection($conn);
         jsonError('Prenotazione non trovata', 404);
+        return;
     }
     
     $prenotazione = $result->fetch_assoc();
@@ -558,9 +772,17 @@ function handleDeletePrenotazione($id) {
     if ($prenotazione['email_responsabile'] !== $currentUser['email']) {
         closeDbConnection($conn);
         jsonError('Non autorizzato', 403);
+        return;
     }
     
-    // Elimina la prenotazione (gli inviti verranno eliminati automaticamente per CASCADE)
+    // Elimina prima gli inviti associati
+    $sql = "DELETE FROM invito WHERE id_prenotazione = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param('i', $id);
+    $stmt->execute();
+    $stmt->close();
+    
+    // Poi elimina la prenotazione
     $sql = "DELETE FROM prenotazione WHERE id = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param('i', $id);
@@ -570,9 +792,10 @@ function handleDeletePrenotazione($id) {
         closeDbConnection($conn);
         jsonSuccess(['message' => 'Prenotazione eliminata']);
     } else {
+        $error = $stmt->error;
         $stmt->close();
         closeDbConnection($conn);
-        jsonError('Errore durante l\'eliminazione');
+        jsonError('Errore durante l\'eliminazione: ' . $error);
     }
 }
 
@@ -581,13 +804,14 @@ function handleDeletePrenotazione($id) {
 // ==========================================
 
 function handleGetSalaWeek($nome_sala) {
-    requireLogin();
+    if (!requireLoginApi()) return;
     
     $nome_settore = $_GET['settore'] ?? '';
     $date = $_GET['date'] ?? date('Y-m-d');
     
     if (empty($nome_settore)) {
         jsonError('Parametro settore obbligatorio');
+        return;
     }
     
     // Calcola range settimana
@@ -619,17 +843,18 @@ function handleGetSalaWeek($nome_sala) {
     $stmt->close();
     closeDbConnection($conn);
     
-    jsonSuccess(['prenotazioni' => $prenotazioni]);
+    jsonSuccess(['prenotazioni' => $prenotazioni, 'week' => ['start' => $start, 'end' => $end]]);
 }
 
 function handleGetUserWeek($email) {
-    requireLogin();
+    if (!requireLoginApi()) return;
     
     $currentUser = getCurrentUser();
     
     // L'utente può vedere solo i propri impegni a meno che non sia responsabile
     if ($currentUser['email'] !== $email && !isResponsabile()) {
         jsonError('Non autorizzato', 403);
+        return;
     }
     
     $date = $_GET['date'] ?? date('Y-m-d');
@@ -641,8 +866,8 @@ function handleGetUserWeek($email) {
     
     $conn = getDbConnection();
     
-    // Ottieni tutti gli impegni dell'utente per la settimana (prenotazioni con invito accettato)
-    $sql = "SELECT p.*, inv.risposta, inv.data_ora_risposta,
+    // Ottieni tutti gli impegni dell'utente per la settimana
+    $sql = "SELECT p.*, inv.risposta, inv.data_ora_risposta, inv.motivazione,
                    i.nome AS responsabile_nome, i.cognome AS responsabile_cognome
             FROM prenotazione p
             JOIN invito inv ON p.id = inv.id_prenotazione
@@ -664,7 +889,7 @@ function handleGetUserWeek($email) {
     $stmt->close();
     closeDbConnection($conn);
     
-    jsonSuccess(['impegni' => $impegni]);
+    jsonSuccess(['impegni' => $impegni, 'week' => ['start' => $start, 'end' => $end]]);
 }
 
 // ==========================================
@@ -672,22 +897,25 @@ function handleGetUserWeek($email) {
 // ==========================================
 
 function handleRispostaInvito($prenotazione_id, $email, $input) {
-    requireLogin();
+    if (!requireLoginApi()) return;
     
     $currentUser = getCurrentUser();
     
     // L'utente può rispondere solo ai propri inviti
     if ($currentUser['email'] !== $email) {
         jsonError('Non autorizzato', 403);
+        return;
     }
     
     if (!isset($input['risposta']) || !in_array($input['risposta'], ['si', 'no'])) {
         jsonError('Risposta non valida. Usare "si" o "no"');
+        return;
     }
     
     // Se rifiuta, la motivazione è obbligatoria
-    if ($input['risposta'] === 'no' && (empty($input['motivazione']) || trim($input['motivazione']) === '')) {
+    if ($input['risposta'] === 'no' && (!isset($input['motivazione']) || empty(trim($input['motivazione'])))) {
         jsonError('La motivazione è obbligatoria per i rifiuti');
+        return;
     }
     
     $conn = getDbConnection();
@@ -703,6 +931,7 @@ function handleRispostaInvito($prenotazione_id, $email, $input) {
         $stmt->close();
         closeDbConnection($conn);
         jsonError('Invito non trovato', 404);
+        return;
     }
     
     $stmt->close();
@@ -710,7 +939,7 @@ function handleRispostaInvito($prenotazione_id, $email, $input) {
     // Se accetta, verifica sovrapposizioni con altri impegni
     if ($input['risposta'] === 'si') {
         // Ottieni dati prenotazione
-        $sql = "SELECT data_ora_inizio, durata FROM prenotazione WHERE id = ?";
+        $sql = "SELECT data_ora_inizio, durata, nome_sala, nome_settore FROM prenotazione WHERE id = ?";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param('i', $prenotazione_id);
         $stmt->execute();
@@ -721,6 +950,7 @@ function handleRispostaInvito($prenotazione_id, $email, $input) {
         if (!$prenotazione) {
             closeDbConnection($conn);
             jsonError('Prenotazione non trovata', 404);
+            return;
         }
         
         // Verifica sovrapposizioni con impegni già accettati
@@ -730,6 +960,7 @@ function handleRispostaInvito($prenotazione_id, $email, $input) {
         if ($overlapCheck['overlap']) {
             closeDbConnection($conn);
             jsonError('Hai già un impegno sovrapposto in questo orario');
+            return;
         }
         
         // Verifica capienza sala
@@ -746,9 +977,10 @@ function handleRispostaInvito($prenotazione_id, $email, $input) {
         $capienza_info = $result->fetch_assoc();
         $stmt->close();
         
-        if ($capienza_info['partecipanti_attuali'] >= $capienza_info['capienza']) {
+        if ($capienza_info && $capienza_info['partecipanti_attuali'] >= $capienza_info['capienza']) {
             closeDbConnection($conn);
             jsonError('La sala ha raggiunto la capienza massima');
+            return;
         }
     }
     
@@ -757,7 +989,7 @@ function handleRispostaInvito($prenotazione_id, $email, $input) {
             WHERE email_iscritto = ? AND id_prenotazione = ?";
     
     $stmt = $conn->prepare($sql);
-    $motivazione = $input['motivazione'] ?? null;
+    $motivazione = isset($input['motivazione']) ? trim($input['motivazione']) : null;
     $stmt->bind_param('sssi', $input['risposta'], $motivazione, $email, $prenotazione_id);
     
     if ($stmt->execute()) {
@@ -765,9 +997,10 @@ function handleRispostaInvito($prenotazione_id, $email, $input) {
         closeDbConnection($conn);
         jsonSuccess(['message' => 'Risposta registrata con successo']);
     } else {
+        $error = $stmt->error;
         $stmt->close();
         closeDbConnection($conn);
-        jsonError('Errore durante la registrazione della risposta');
+        jsonError('Errore durante la registrazione della risposta: ' . $error);
     }
 }
 
@@ -776,7 +1009,7 @@ function handleRispostaInvito($prenotazione_id, $email, $input) {
 // ==========================================
 
 function handleGetStats() {
-    requireResponsabile();
+    if (!requireResponsabileApi()) return;
     
     $conn = getDbConnection();
     
@@ -795,8 +1028,10 @@ function handleGetStats() {
     
     $result = $conn->query($sql);
     $partecipanti_per_prenotazione = [];
-    while ($row = $result->fetch_assoc()) {
-        $partecipanti_per_prenotazione[] = $row;
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $partecipanti_per_prenotazione[] = $row;
+        }
     }
     $stats['partecipanti_per_prenotazione'] = $partecipanti_per_prenotazione;
     
@@ -810,8 +1045,10 @@ function handleGetStats() {
     
     $result = $conn->query($sql);
     $prenotazioni_per_giorno = [];
-    while ($row = $result->fetch_assoc()) {
-        $prenotazioni_per_giorno[] = $row;
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $prenotazioni_per_giorno[] = $row;
+        }
     }
     $stats['prenotazioni_per_giorno'] = $prenotazioni_per_giorno;
     
@@ -820,3 +1057,134 @@ function handleGetStats() {
     jsonSuccess(['stats' => $stats]);
 }
 
+// ==========================================
+// HANDLER FUNCTIONS - SETTORI E SALE
+// ==========================================
+
+function handleGetSettori() {
+    $conn = getDbConnection();
+    
+    $sql = "SELECT nome_settore, num_iscritti FROM settore ORDER BY nome_settore";
+    $result = $conn->query($sql);
+    
+    $settori = [];
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $settori[] = $row;
+        }
+    }
+    
+    closeDbConnection($conn);
+    jsonSuccess(['settori' => $settori]);
+}
+
+function handleGetSale() {
+    $settore = $_GET['settore'] ?? null;
+    
+    $conn = getDbConnection();
+    
+    if ($settore) {
+        $sql = "SELECT s.nome_sala, s.nome_settore, s.capienza, 
+                       GROUP_CONCAT(d.nome_dotazione SEPARATOR ', ') AS dotazioni
+                FROM sala s
+                LEFT JOIN dotazione d ON s.nome_sala = d.nome_sala AND s.nome_settore = d.nome_settore
+                WHERE s.nome_settore = ?
+                GROUP BY s.nome_sala, s.nome_settore, s.capienza
+                ORDER BY s.nome_sala";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param('s', $settore);
+        $stmt->execute();
+        $result = $stmt->get_result();
+    } else {
+        $sql = "SELECT s.nome_sala, s.nome_settore, s.capienza,
+                       GROUP_CONCAT(d.nome_dotazione SEPARATOR ', ') AS dotazioni
+                FROM sala s
+                LEFT JOIN dotazione d ON s.nome_sala = d.nome_sala AND s.nome_settore = d.nome_settore
+                GROUP BY s.nome_sala, s.nome_settore, s.capienza
+                ORDER BY s.nome_settore, s.nome_sala";
+        $result = $conn->query($sql);
+    }
+    
+    $sale = [];
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $sale[] = $row;
+        }
+    }
+    
+    if (isset($stmt)) {
+        $stmt->close();
+    }
+    closeDbConnection($conn);
+    
+    jsonSuccess(['sale' => $sale]);
+}
+
+// ==========================================
+// HELPER FUNCTIONS PER API
+// ==========================================
+
+/**
+ * Verifica login per API (restituisce JSON invece di redirect)
+ */
+function requireLoginApi() {
+    if (!isLoggedIn()) {
+        jsonError('Non autenticato', 401);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Verifica responsabile per API (restituisce JSON invece di redirect)
+ */
+function requireResponsabileApi() {
+    if (!requireLoginApi()) {
+        return false;
+    }
+    
+    if (!isResponsabile()) {
+        jsonError('Solo i responsabili possono effettuare questa operazione', 403);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Normalizza un datetime da vari formati a YYYY-MM-DD HH:MM:SS
+ */
+function normalizeDateTime($datetime) {
+    if (empty($datetime)) {
+        return null;
+    }
+    
+    // Rimuovi eventuali T e Z dal formato ISO
+    $datetime = str_replace('T', ' ', $datetime);
+    $datetime = str_replace('Z', '', $datetime);
+    
+    // Prova vari formati
+    $formats = [
+        'Y-m-d H:i:s',
+        'Y-m-d H:i',
+        'Y-m-d\TH:i:s',
+        'Y-m-d\TH:i',
+        'd/m/Y H:i:s',
+        'd/m/Y H:i'
+    ];
+    
+    foreach ($formats as $format) {
+        $dt = DateTime::createFromFormat($format, $datetime);
+        if ($dt !== false) {
+            // Forza minuti e secondi a 00 per avere ore intere
+            return $dt->format('Y-m-d H:00:00');
+        }
+    }
+    
+    // Ultimo tentativo con strtotime
+    $timestamp = strtotime($datetime);
+    if ($timestamp !== false) {
+        return date('Y-m-d H:00:00', $timestamp);
+    }
+    
+    return null;
+}

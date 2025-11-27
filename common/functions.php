@@ -39,6 +39,7 @@ function validatePassword($password) {
  * @return bool True se valida, false altrimenti
  */
 function validateDate($date) {
+    if (empty($date)) return false;
     $d = DateTime::createFromFormat('Y-m-d', $date);
     return $d && $d->format('Y-m-d') === $date;
 }
@@ -50,6 +51,7 @@ function validateDate($date) {
  * @return bool True se valido, false altrimenti
  */
 function validateDatetime($datetime) {
+    if (empty($datetime)) return false;
     $d = DateTime::createFromFormat('Y-m-d H:i:s', $datetime);
     return $d && $d->format('Y-m-d H:i:s') === $datetime;
 }
@@ -76,14 +78,32 @@ function validateRuolo($ruolo) {
  * @return array ['valid' => bool, 'error' => string]
  */
 function validateBookingTime($data_ora_inizio) {
+    // Prova a parsare il datetime
     $dt = DateTime::createFromFormat('Y-m-d H:i:s', $data_ora_inizio);
     
     if (!$dt) {
-        return ['valid' => false, 'error' => 'Formato datetime non valido'];
+        // Prova altri formati
+        $dt = DateTime::createFromFormat('Y-m-d H:i', $data_ora_inizio);
+    }
+    
+    if (!$dt) {
+        // Prova con T separatore
+        $dt = DateTime::createFromFormat('Y-m-d\TH:i:s', $data_ora_inizio);
+    }
+    
+    if (!$dt) {
+        $dt = DateTime::createFromFormat('Y-m-d\TH:i', $data_ora_inizio);
+    }
+    
+    if (!$dt) {
+        return ['valid' => false, 'error' => 'Formato datetime non valido. Usa YYYY-MM-DD HH:MM:SS'];
     }
     
     // Verifica che minuti e secondi siano zero (ora intera)
-    if ($dt->format('i') !== '00' || $dt->format('s') !== '00') {
+    $minuti = (int)$dt->format('i');
+    $secondi = (int)$dt->format('s');
+    
+    if ($minuti !== 0 || $secondi !== 0) {
         return ['valid' => false, 'error' => 'Le prenotazioni devono iniziare ad ore intere (es. 10:00:00, 14:00:00)'];
     }
     
@@ -93,8 +113,9 @@ function validateBookingTime($data_ora_inizio) {
         return ['valid' => false, 'error' => 'Le prenotazioni sono consentite solo tra le ' . MIN_BOOKING_HOUR . ':00 e le ' . MAX_BOOKING_HOUR . ':00'];
     }
     
-    // Verifica che la prenotazione non sia nel passato
+    // Verifica che la prenotazione non sia nel passato (con tolleranza di 5 minuti)
     $now = new DateTime();
+    $now->modify('-5 minutes');
     if ($dt < $now) {
         return ['valid' => false, 'error' => 'Non è possibile prenotare nel passato'];
     }
@@ -109,6 +130,8 @@ function validateBookingTime($data_ora_inizio) {
  * @return array ['valid' => bool, 'error' => string]
  */
 function validateBookingDuration($durata) {
+    $durata = (int)$durata;
+    
     if ($durata < MIN_BOOKING_DURATION) {
         return ['valid' => false, 'error' => 'La durata minima è ' . MIN_BOOKING_DURATION . ' ora/e'];
     }
@@ -162,12 +185,15 @@ function checkRoomOverlap($conn, $nome_sala, $nome_settore, $data_ora_inizio, $d
     $fine = $dt_end->format('Y-m-d H:i:s');
     
     // Query per trovare prenotazioni sovrapposte
+    // Una sovrapposizione avviene quando:
+    // - La nuova prenotazione inizia prima che finisca una esistente E
+    // - La nuova prenotazione finisce dopo che inizia una esistente
     $sql = "SELECT id, data_ora_inizio, durata 
             FROM prenotazione 
             WHERE nome_sala = ? 
             AND nome_settore = ?
-            AND data_ora_inizio < ?
-            AND DATE_ADD(data_ora_inizio, INTERVAL durata HOUR) > ?";
+            AND ? < DATE_ADD(data_ora_inizio, INTERVAL durata HOUR)
+            AND ? > data_ora_inizio";
     
     if ($exclude_id !== null) {
         $sql .= " AND id != ?";
@@ -175,19 +201,26 @@ function checkRoomOverlap($conn, $nome_sala, $nome_settore, $data_ora_inizio, $d
     
     $stmt = $conn->prepare($sql);
     
+    if (!$stmt) {
+        error_log("checkRoomOverlap prepare error: " . $conn->error);
+        return ['overlap' => false, 'prenotazione_id' => null];
+    }
+    
     if ($exclude_id !== null) {
-        $stmt->bind_param('ssssi', $nome_sala, $nome_settore, $fine, $data_ora_inizio, $exclude_id);
+        $stmt->bind_param('ssssi', $nome_sala, $nome_settore, $data_ora_inizio, $fine, $exclude_id);
     } else {
-        $stmt->bind_param('ssss', $nome_sala, $nome_settore, $fine, $data_ora_inizio);
+        $stmt->bind_param('ssss', $nome_sala, $nome_settore, $data_ora_inizio, $fine);
     }
     
     $stmt->execute();
     $result = $stmt->get_result();
     
     if ($row = $result->fetch_assoc()) {
+        $stmt->close();
         return ['overlap' => true, 'prenotazione_id' => $row['id']];
     }
     
+    $stmt->close();
     return ['overlap' => false, 'prenotazione_id' => null];
 }
 
@@ -214,8 +247,8 @@ function checkUserOverlap($conn, $email, $data_ora_inizio, $durata, $exclude_pre
             JOIN invito i ON p.id = i.id_prenotazione
             WHERE i.email_iscritto = ?
             AND i.risposta = 'si'
-            AND p.data_ora_inizio < ?
-            AND DATE_ADD(p.data_ora_inizio, INTERVAL p.durata HOUR) > ?";
+            AND ? < DATE_ADD(p.data_ora_inizio, INTERVAL p.durata HOUR)
+            AND ? > p.data_ora_inizio";
     
     if ($exclude_prenotazione_id !== null) {
         $sql .= " AND p.id != ?";
@@ -223,19 +256,26 @@ function checkUserOverlap($conn, $email, $data_ora_inizio, $durata, $exclude_pre
     
     $stmt = $conn->prepare($sql);
     
+    if (!$stmt) {
+        error_log("checkUserOverlap prepare error: " . $conn->error);
+        return ['overlap' => false, 'prenotazione_id' => null];
+    }
+    
     if ($exclude_prenotazione_id !== null) {
-        $stmt->bind_param('sssi', $email, $fine, $data_ora_inizio, $exclude_prenotazione_id);
+        $stmt->bind_param('sssi', $email, $data_ora_inizio, $fine, $exclude_prenotazione_id);
     } else {
-        $stmt->bind_param('sss', $email, $fine, $data_ora_inizio);
+        $stmt->bind_param('sss', $email, $data_ora_inizio, $fine);
     }
     
     $stmt->execute();
     $result = $stmt->get_result();
     
     if ($row = $result->fetch_assoc()) {
+        $stmt->close();
         return ['overlap' => true, 'prenotazione_id' => $row['id']];
     }
     
+    $stmt->close();
     return ['overlap' => false, 'prenotazione_id' => null];
 }
 
@@ -293,6 +333,7 @@ function getWeekDays($start_date) {
  * @return string Stringa sanitizzata
  */
 function sanitizeOutput($str) {
+    if ($str === null) return '';
     return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
 }
 
@@ -304,6 +345,7 @@ function sanitizeOutput($str) {
  * @return string Data formattata
  */
 function formatDate($date, $format = 'd/m/Y') {
+    if (empty($date)) return '';
     $dt = new DateTime($date);
     return $dt->format($format);
 }
@@ -316,6 +358,7 @@ function formatDate($date, $format = 'd/m/Y') {
  * @return string Datetime formattato
  */
 function formatDatetime($datetime, $format = 'd/m/Y H:i') {
+    if (empty($datetime)) return '';
     $dt = new DateTime($datetime);
     return $dt->format($format);
 }
@@ -330,7 +373,7 @@ function formatDatetime($datetime, $format = 'd/m/Y H:i') {
 function jsonResponse($data, $status_code = 200) {
     http_response_code($status_code);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }
 
@@ -358,4 +401,20 @@ function jsonSuccess($data = [], $status_code = 200) {
         $response = array_merge($response, $data);
     }
     jsonResponse($response, $status_code);
+}
+
+/**
+ * Log debug message
+ * 
+ * @param string $message Messaggio
+ * @param mixed $data Dati opzionali
+ */
+function debugLog($message, $data = null) {
+    if (DEBUG_MODE) {
+        $log = date('Y-m-d H:i:s') . " - $message";
+        if ($data !== null) {
+            $log .= " - " . json_encode($data);
+        }
+        error_log($log);
+    }
 }

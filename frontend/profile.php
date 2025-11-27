@@ -1,9 +1,7 @@
 <?php
 /**
  * File: frontend/profile.php
- * Percorso: playroomplanner/frontend/profile.php
- * Scopo: Visualizzazione e modifica profilo utente
- * Dipendenze: common/auth.php
+ * Visualizzazione e modifica profilo utente
  */
 
 require_once __DIR__ . '/../common/auth.php';
@@ -28,17 +26,24 @@ $user = getCurrentUser();
         <div id="alertContainer"></div>
 
         <!-- Profile Header -->
-        <div class="profile-header text-center mb-4">
-            <div class="container">
-                <img src="<?php echo $user['foto'] ?? '../images/placeholder.png'; ?>" 
-                     alt="Avatar" class="profile-avatar mb-3" id="avatarImage">
-                <h2 class="profile-name">
-                    <?php echo htmlspecialchars($user['nome'] . ' ' . $user['cognome']); ?>
-                </h2>
+        <div class="card bg-primary text-white mb-4">
+            <div class="card-body text-center py-5">
+                <?php if ($user['foto']): ?>
+                    <img src="<?php echo htmlspecialchars($user['foto']); ?>" 
+                         alt="Avatar" class="rounded-circle mb-3" style="width: 120px; height: 120px; object-fit: cover; border: 4px solid white;" 
+                         id="avatarImage">
+                <?php else: ?>
+                    <div class="rounded-circle bg-light text-primary d-inline-flex align-items-center justify-content-center mb-3" 
+                         style="width: 120px; height: 120px; font-size: 3rem;">
+                        <i class="bi bi-person"></i>
+                    </div>
+                <?php endif; ?>
+                <h2 class="mb-1"><?php echo htmlspecialchars($user['nome'] . ' ' . $user['cognome']); ?></h2>
                 <p class="mb-0">
-                    <span class="badge ruolo-<?php echo htmlspecialchars($user['nome_ruolo']); ?>">
-                        <?php echo ucfirst(htmlspecialchars($user['nome_ruolo'])); ?>
-                    </span>
+                    <span class="badge bg-light text-dark"><?php echo ucfirst(htmlspecialchars($user['nome_ruolo'])); ?></span>
+                    <?php if ($user['nome_settore']): ?>
+                        <span class="badge bg-light text-dark ms-1"><?php echo htmlspecialchars($user['nome_settore']); ?></span>
+                    <?php endif; ?>
                 </p>
             </div>
         </div>
@@ -46,67 +51,69 @@ $user = getCurrentUser();
         <div class="row">
             <!-- Informazioni Profilo -->
             <div class="col-md-6 mb-4">
-                <div class="card">
-                    <div class="card-header bg-primary text-white">
+                <div class="card h-100">
+                    <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-person-lines-fill"></i> Informazioni Personali</h5>
                     </div>
                     <div class="card-body">
-                        <div class="profile-info-item">
-                            <span class="profile-info-label">Email:</span>
-                            <span><?php echo htmlspecialchars($user['email']); ?></span>
-                        </div>
-                        <div class="profile-info-item">
-                            <span class="profile-info-label">Nome:</span>
-                            <span><?php echo htmlspecialchars($user['nome']); ?></span>
-                        </div>
-                        <div class="profile-info-item">
-                            <span class="profile-info-label">Cognome:</span>
-                            <span><?php echo htmlspecialchars($user['cognome']); ?></span>
-                        </div>
-                        <div class="profile-info-item">
-                            <span class="profile-info-label">Data di Nascita:</span>
-                            <span><?php echo date('d/m/Y', strtotime($user['data_nascita'])); ?></span>
-                        </div>
-                        <div class="profile-info-item">
-                            <span class="profile-info-label">Ruolo:</span>
-                            <span>
-                                <span class="badge ruolo-<?php echo htmlspecialchars($user['nome_ruolo']); ?>">
-                                    <?php echo ucfirst(htmlspecialchars($user['nome_ruolo'])); ?>
-                                </span>
-                            </span>
-                        </div>
-                        <?php if ($user['nome_settore']): ?>
-                        <div class="profile-info-item">
-                            <span class="profile-info-label">Settore:</span>
-                            <span><?php echo htmlspecialchars($user['nome_settore']); ?></span>
-                        </div>
-                        <?php endif; ?>
-                        <?php if ($user['data_inizio']): ?>
-                        <div class="profile-info-item">
-                            <span class="profile-info-label">Data Inizio Ruolo:</span>
-                            <span><?php echo date('d/m/Y', strtotime($user['data_inizio'])); ?></span>
-                        </div>
-                        <?php if ($user['nome_ruolo'] === 'responsabile'): ?>
-                        <div class="profile-info-item">
-                            <span class="profile-info-label">Anni di Servizio:</span>
-                            <span>
-                                <?php 
-                                $inizio = new DateTime($user['data_inizio']);
-                                $oggi = new DateTime();
-                                $anni = $oggi->diff($inizio)->y;
-                                echo $anni . ' ' . ($anni == 1 ? 'anno' : 'anni');
-                                ?>
-                            </span>
-                        </div>
-                        <?php endif; ?>
-                        <?php endif; ?>
+                        <table class="table table-borderless">
+                            <tr>
+                                <td class="fw-bold text-muted" style="width: 40%;">Email:</td>
+                                <td><?php echo htmlspecialchars($user['email']); ?></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold text-muted">Nome:</td>
+                                <td><?php echo htmlspecialchars($user['nome']); ?></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold text-muted">Cognome:</td>
+                                <td><?php echo htmlspecialchars($user['cognome']); ?></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold text-muted">Data di Nascita:</td>
+                                <td><?php echo date('d/m/Y', strtotime($user['data_nascita'])); ?></td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold text-muted">Ruolo:</td>
+                                <td>
+                                    <span class="badge ruolo-<?php echo htmlspecialchars($user['nome_ruolo']); ?>">
+                                        <?php echo ucfirst(htmlspecialchars($user['nome_ruolo'])); ?>
+                                    </span>
+                                </td>
+                            </tr>
+                            <?php if ($user['nome_settore']): ?>
+                            <tr>
+                                <td class="fw-bold text-muted">Settore:</td>
+                                <td><?php echo htmlspecialchars($user['nome_settore']); ?></td>
+                            </tr>
+                            <?php endif; ?>
+                            <?php if ($user['data_inizio']): ?>
+                            <tr>
+                                <td class="fw-bold text-muted">Data Inizio Ruolo:</td>
+                                <td><?php echo date('d/m/Y', strtotime($user['data_inizio'])); ?></td>
+                            </tr>
+                            <?php if ($user['nome_ruolo'] === 'responsabile'): ?>
+                            <tr>
+                                <td class="fw-bold text-muted">Anni di Servizio:</td>
+                                <td>
+                                    <?php 
+                                    $inizio = new DateTime($user['data_inizio']);
+                                    $oggi = new DateTime();
+                                    $anni = $oggi->diff($inizio)->y;
+                                    echo $anni . ' ' . ($anni == 1 ? 'anno' : 'anni');
+                                    ?>
+                                </td>
+                            </tr>
+                            <?php endif; ?>
+                            <?php endif; ?>
+                        </table>
                     </div>
                 </div>
             </div>
 
             <!-- Modifica Profilo -->
             <div class="col-md-6 mb-4">
-                <div class="card">
+                <div class="card h-100">
                     <div class="card-header bg-success text-white">
                         <h5 class="mb-0"><i class="bi bi-pencil-square"></i> Modifica Profilo</h5>
                     </div>
@@ -115,20 +122,20 @@ $user = getCurrentUser();
                             <div class="mb-3">
                                 <label for="nome" class="form-label">Nome</label>
                                 <input type="text" class="form-control" id="nome" name="nome" 
-                                       value="<?php echo htmlspecialchars($user['nome']); ?>">
+                                       value="<?php echo htmlspecialchars($user['nome']); ?>" required>
                             </div>
 
                             <div class="mb-3">
                                 <label for="cognome" class="form-label">Cognome</label>
                                 <input type="text" class="form-control" id="cognome" name="cognome" 
-                                       value="<?php echo htmlspecialchars($user['cognome']); ?>">
+                                       value="<?php echo htmlspecialchars($user['cognome']); ?>" required>
                             </div>
 
                             <div class="mb-3">
-                                <label for="password" class="form-label">Nuova Password (lascia vuoto per non modificare)</label>
+                                <label for="password" class="form-label">Nuova Password</label>
                                 <input type="password" class="form-control" id="password" name="password" 
-                                       placeholder="Minimo 8 caratteri">
-                                <small class="form-text text-muted">Inserisci solo se vuoi cambiare password</small>
+                                       placeholder="Lascia vuoto per non modificare" minlength="8">
+                                <small class="form-text text-muted">Minimo 8 caratteri. Lascia vuoto per mantenere la password attuale.</small>
                             </div>
 
                             <div class="mb-3">
@@ -136,30 +143,13 @@ $user = getCurrentUser();
                                 <input type="url" class="form-control" id="foto" name="foto" 
                                        value="<?php echo htmlspecialchars($user['foto'] ?? ''); ?>"
                                        placeholder="https://esempio.com/foto.jpg">
-                                <small class="form-text text-muted">Inserisci l'URL di un'immagine online</small>
+                                <small class="form-text text-muted">URL di un'immagine online</small>
                             </div>
 
                             <button type="submit" class="btn btn-success w-100">
                                 <i class="bi bi-check-circle"></i> Salva Modifiche
                             </button>
                         </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Account Actions -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card border-danger">
-                    <div class="card-header bg-danger text-white">
-                        <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Zona Pericolosa</h5>
-                    </div>
-                    <div class="card-body">
-                        <p class="mb-3">Le seguenti azioni sono irreversibili. Procedi con cautela.</p>
-                        <button class="btn btn-danger" onclick="confirmDeleteAccount()">
-                            <i class="bi bi-trash"></i> Elimina Account
-                        </button>
                     </div>
                 </div>
             </div>
@@ -171,15 +161,20 @@ $user = getCurrentUser();
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="../js/app.js"></script>
     <script>
-        // Update profile form handler
+        const userEmail = '<?php echo htmlspecialchars($user['email']); ?>';
+        
         document.getElementById('updateProfileForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
             const formData = {
                 nome: document.getElementById('nome').value.trim(),
-                cognome: document.getElementById('cognome').value.trim(),
-                foto: document.getElementById('foto').value.trim() || null
+                cognome: document.getElementById('cognome').value.trim()
             };
+            
+            const foto = document.getElementById('foto').value.trim();
+            if (foto) {
+                formData.foto = foto;
+            }
             
             const password = document.getElementById('password').value;
             if (password) {
@@ -190,54 +185,35 @@ $user = getCurrentUser();
                 formData.password = password;
             }
             
+            if (!formData.nome || !formData.cognome) {
+                showAlert('Nome e cognome sono obbligatori', 'danger');
+                return;
+            }
+            
             try {
-                const email = '<?php echo $user['email']; ?>';
-                const response = await apiCall(`/playroomplanner/backend/api.php/users/${encodeURIComponent(email)}`, 
-                                              'PUT', formData);
+                showLoading();
+                const response = await apiCall(`/users/${encodeURIComponent(userEmail)}`, 'PUT', formData);
                 
                 if (response.success) {
                     showAlert('Profilo aggiornato con successo!', 'success');
                     
-                    // Update avatar if changed
-                    if (formData.foto) {
-                        document.getElementById('avatarImage').src = formData.foto;
+                    // Aggiorna avatar se cambiato
+                    const avatarImg = document.getElementById('avatarImage');
+                    if (avatarImg && formData.foto) {
+                        avatarImg.src = formData.foto;
                     }
                     
-                    // Reload page after 1.5 seconds to reflect changes
-                    setTimeout(() => {
-                        location.reload();
-                    }, 1500);
+                    // Ricarica dopo 1.5 secondi
+                    setTimeout(() => location.reload(), 1500);
                 } else {
                     showAlert(response.error || 'Errore durante l\'aggiornamento', 'danger');
                 }
             } catch (error) {
-                showAlert('Errore di connessione: ' + error.message, 'danger');
+                showAlert('Errore: ' + error.message, 'danger');
+            } finally {
+                hideLoading();
             }
         });
-
-        // Delete account confirmation
-        function confirmDeleteAccount() {
-            showConfirmModal(
-                'Conferma Eliminazione Account',
-                'Sei sicuro di voler eliminare il tuo account? Questa azione è irreversibile e perderai tutti i tuoi dati.',
-                async function() {
-                    try {
-                        const email = '<?php echo $user['email']; ?>';
-                        const response = await apiCall(`/playroomplanner/backend/api.php/users/${encodeURIComponent(email)}`, 
-                                                      'DELETE');
-                        
-                        if (response.success) {
-                            alert('Account eliminato. Sarai reindirizzato alla pagina di login.');
-                            await logout();
-                        } else {
-                            showAlert(response.error || 'Errore durante l\'eliminazione', 'danger');
-                        }
-                    } catch (error) {
-                        showAlert('Errore: ' + error.message, 'danger');
-                    }
-                }
-            );
-        }
     </script>
 </body>
 </html>

@@ -1,33 +1,31 @@
 <?php
 /**
  * File: frontend/register.php
- * Percorso: playroomplanner/frontend/register.php
- * Scopo: Pagina di registrazione nuovo utente
- * Dipendenze: common/auth.php, common/config.php
+ * Pagina di registrazione nuovo utente
  */
 
 require_once __DIR__ . '/../common/auth.php';
 require_once __DIR__ . '/../common/config.php';
 
 // Se già autenticato, redirect alla home
-session_start();
+initSession();
 if (isLoggedIn()) {
     header('Location: home.php');
     exit;
 }
 
-// Recupera lista settori per il dropdown
+// Recupera lista settori
+$settori = [];
 try {
     $conn = getDbConnection();
     $sql = "SELECT nome_settore FROM settore ORDER BY nome_settore";
     $result = $conn->query($sql);
-    $settori = [];
     while ($row = $result->fetch_assoc()) {
         $settori[] = $row['nome_settore'];
     }
     closeDbConnection($conn);
 } catch (Exception $e) {
-    $settori = [];
+    // Ignora errori, lista vuota
 }
 ?>
 <!DOCTYPE html>
@@ -47,7 +45,7 @@ try {
                 <div class="card shadow-lg">
                     <div class="card-body p-5">
                         <div class="text-center mb-4">
-                            <h2 class="fw-bold">Registrazione</h2>
+                            <h2 class="fw-bold"><i class="bi bi-diagram-3-fill text-primary"></i> Registrazione</h2>
                             <p class="text-muted">Crea un nuovo account</p>
                         </div>
 
@@ -55,7 +53,7 @@ try {
 
                         <form id="registerForm">
                             <!-- Dati Personali -->
-                            <h5 class="mb-3">Dati Personali</h5>
+                            <h5 class="mb-3"><i class="bi bi-person"></i> Dati Personali</h5>
                             
                             <div class="row mb-3">
                                 <div class="col-md-6">
@@ -74,7 +72,7 @@ try {
                             </div>
 
                             <!-- Dati Accesso -->
-                            <h5 class="mb-3 mt-4">Dati di Accesso</h5>
+                            <h5 class="mb-3 mt-4"><i class="bi bi-key"></i> Dati di Accesso</h5>
 
                             <div class="mb-3">
                                 <label for="email" class="form-label">Email *</label>
@@ -96,7 +94,7 @@ try {
                             </div>
 
                             <!-- Dati Organizzazione -->
-                            <h5 class="mb-3 mt-4">Dati Organizzativi</h5>
+                            <h5 class="mb-3 mt-4"><i class="bi bi-building"></i> Dati Organizzativi</h5>
 
                             <div class="mb-3">
                                 <label for="nome_ruolo" class="form-label">Ruolo *</label>
@@ -155,22 +153,22 @@ try {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="../js/app.js"></script>
     <script>
-        // Mostra/nascondi campo data_inizio in base al ruolo selezionato
+        // Mostra/nascondi campo data_inizio
         document.getElementById('nome_ruolo').addEventListener('change', function() {
-            const dataInizioContainer = document.getElementById('dataInizioContainer');
-            const dataInizioInput = document.getElementById('data_inizio');
+            const container = document.getElementById('dataInizioContainer');
+            const input = document.getElementById('data_inizio');
             
             if (this.value === 'responsabile') {
-                dataInizioContainer.style.display = 'block';
-                dataInizioInput.required = true;
+                container.style.display = 'block';
+                input.required = true;
             } else {
-                dataInizioContainer.style.display = 'none';
-                dataInizioInput.required = false;
-                dataInizioInput.value = '';
+                container.style.display = 'none';
+                input.required = false;
+                input.value = '';
             }
         });
 
-        // Gestione submit form registrazione
+        // Submit form
         document.getElementById('registerForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
@@ -187,7 +185,7 @@ try {
             
             const confirmPassword = document.getElementById('confirm_password').value;
             
-            // Validazione client-side
+            // Validazione
             if (!formData.nome || !formData.cognome || !formData.data_nascita || 
                 !formData.email || !formData.password || !formData.nome_ruolo) {
                 showAlert('Compila tutti i campi obbligatori', 'danger');
@@ -210,7 +208,8 @@ try {
             }
             
             try {
-                const response = await apiCall('../backend/api.php/users', 'POST', formData);
+                showLoading();
+                const response = await apiCall('/users', 'POST', formData);
                 
                 if (response.success) {
                     showAlert('Registrazione completata! Reindirizzamento al login...', 'success');
@@ -221,20 +220,11 @@ try {
                     showAlert(response.error || 'Errore durante la registrazione', 'danger');
                 }
             } catch (error) {
-                showAlert('Errore di connessione: ' + error.message, 'danger');
+                showAlert('Errore: ' + error.message, 'danger');
+            } finally {
+                hideLoading();
             }
         });
-
-        function showAlert(message, type) {
-            const alertContainer = document.getElementById('alertContainer');
-            alertContainer.innerHTML = `
-                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                    ${message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>
-            `;
-            window.scrollTo(0, 0);
-        }
     </script>
 </body>
 </html>

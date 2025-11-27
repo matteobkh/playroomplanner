@@ -19,8 +19,8 @@ define('DB_NAME', 'bbl');
 // Username MySQL
 define('DB_USER', 'root');
 
-// Password MySQL
-define('DB_PASS', 'Cq!k(-tTz]AA(f7q');
+// Password MySQL (lasciare vuoto per XAMPP default)
+define('DB_PASS', '');
 
 // Charset della connessione
 define('DB_CHARSET', 'utf8mb4');
@@ -29,11 +29,12 @@ define('DB_CHARSET', 'utf8mb4');
 // CONFIGURAZIONE APPLICAZIONE
 // ==========================================
 
-// Percorso base dell'applicazione
+// Percorso base dell'applicazione (filesystem)
 define('BASE_PATH', dirname(__DIR__));
 
-// URL base dell'applicazione
-define('BASE_URL', 'http://localhost/playroomplanner');
+// URL base dell'applicazione (MODIFICARE IN BASE AL PROPRIO AMBIENTE)
+// Per XAMPP standard: http://localhost/playroomplanner
+define('BASE_URL', '/playroomplanner');
 
 // Timeout sessione (in secondi - 2 ore)
 define('SESSION_TIMEOUT', 7200);
@@ -90,6 +91,9 @@ function getDbConnection() {
         throw new Exception('Errore impostazione charset: ' . $conn->error);
     }
     
+    // Imposta la timezone per MySQL
+    $conn->query("SET time_zone = '+01:00'");
+    
     return $conn;
 }
 
@@ -114,11 +118,16 @@ if (DEBUG_MODE) {
     ini_set('display_errors', 1);
     ini_set('display_startup_errors', 1);
     error_reporting(E_ALL);
+    
+    // Log errori in un file
+    ini_set('log_errors', 1);
+    ini_set('error_log', BASE_PATH . '/error.log');
 } else {
-    // In produzione, nascondi gli errori
+    // In produzione, nascondi gli errori ma logga
     ini_set('display_errors', 0);
     ini_set('display_startup_errors', 0);
-    error_reporting(0);
+    error_reporting(E_ALL);
+    ini_set('log_errors', 1);
 }
 
 // ==========================================
@@ -135,7 +144,7 @@ date_default_timezone_set('Europe/Rome');
 // Imposta parametri sicuri per le sessioni
 ini_set('session.cookie_httponly', 1);
 ini_set('session.use_only_cookies', 1);
-ini_set('session.cookie_samesite', 'Strict');
+ini_set('session.cookie_samesite', 'Lax');
 
 // Se siamo in HTTPS, usa cookie sicuri
 if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {

@@ -6,21 +6,48 @@
  */
 
 // ==========================================
+// CONFIGURAZIONE
+// ==========================================
+
+const API_BASE_URL = '/playroomplanner/backend/api.php';
+
+// ==========================================
 // API HELPER FUNCTIONS
 // ==========================================
 
 /**
  * Funzione wrapper per chiamate API fetch
- * @param {string} url - URL dell'endpoint API
+ * @param {string} endpoint - Endpoint API (es. '/login', '/users')
  * @param {string} method - Metodo HTTP (GET, POST, PUT, DELETE)
  * @param {object|null} data - Dati da inviare nel body (per POST/PUT)
  * @returns {Promise<object>} - Risposta JSON dell'API
  */
-async function apiCall(url, method = 'GET', data = null) {
+async function apiCall(endpoint, method = 'GET', data = null) {
+    // Normalizza l'endpoint
+    let url = endpoint;
+    
+    // Se l'endpoint non inizia con http, costruisci l'URL completo
+    if (!endpoint.startsWith('http')) {
+        // Rimuovi eventuali prefissi duplicati
+        endpoint = endpoint.replace(/^\.\.\/backend\/api\.php/, '');
+        endpoint = endpoint.replace(/^\/playroomplanner\/backend\/api\.php/, '');
+        endpoint = endpoint.replace(/^\/backend\/api\.php/, '');
+        
+        // Assicurati che inizi con /
+        if (!endpoint.startsWith('/')) {
+            endpoint = '/' + endpoint;
+        }
+        
+        url = API_BASE_URL + endpoint;
+    }
+    
+    console.log('API Call:', method, url, data);
+    
     const options = {
         method: method,
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
         },
         credentials: 'same-origin' // Includi cookie di sessione
     };
@@ -33,17 +60,25 @@ async function apiCall(url, method = 'GET', data = null) {
     try {
         const response = await fetch(url, options);
         
-        // Verifica se la risposta è JSON
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-            throw new Error('Risposta non JSON ricevuta dal server');
+        // Ottieni il testo della risposta
+        const responseText = await response.text();
+        
+        console.log('API Response status:', response.status);
+        console.log('API Response text:', responseText.substring(0, 500));
+        
+        // Prova a parsare come JSON
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (e) {
+            console.error('JSON parse error:', e);
+            console.error('Response was:', responseText);
+            throw new Error('Risposta non valida dal server');
         }
         
-        const result = await response.json();
-        
         // Se il server restituisce un errore HTTP, lancia eccezione
-        if (!response.ok) {
-            throw new Error(result.error || `HTTP error ${response.status}`);
+        if (!response.ok && !result.success) {
+            throw new Error(result.error || `Errore HTTP ${response.status}`);
         }
         
         return result;
@@ -59,11 +94,12 @@ async function apiCall(url, method = 'GET', data = null) {
  */
 async function logout() {
     try {
-        await apiCall('../backend/api.php/logout', 'POST');
-        window.location.href = '../index.php';
+        await apiCall('/logout', 'POST');
+        window.location.href = '/playroomplanner/index.php';
     } catch (error) {
         console.error('Logout error:', error);
-        alert('Errore durante il logout');
+        // Forza il redirect anche in caso di errore
+        window.location.href = '/playroomplanner/index.php';
     }
 }
 
@@ -75,6 +111,9 @@ async function logout() {
  * Mostra un loading overlay
  */
 function showLoading() {
+    // Rimuovi overlay esistente
+    hideLoading();
+    
     const overlay = document.createElement('div');
     overlay.id = 'loadingOverlay';
     overlay.className = 'loading-overlay';
@@ -82,6 +121,18 @@ function showLoading() {
         <div class="spinner-border text-light" role="status">
             <span class="visually-hidden">Caricamento...</span>
         </div>
+    `;
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
     `;
     document.body.appendChild(overlay);
 }
@@ -104,23 +155,35 @@ function hideLoading() {
  */
 function showAlert(message, type = 'info', containerId = 'alertContainer') {
     const container = document.getElementById(containerId);
-    if (!container) return;
+    if (!container) {
+        console.warn('Alert container not found:', containerId);
+        alert(message); // Fallback
+        return;
+    }
     
+    const alertId = 'alert-' + Date.now();
     const alertHtml = `
-        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-            ${message}
+        <div id="${alertId}" class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${escapeHtml(message)}
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
     `;
     
     container.innerHTML = alertHtml;
     
+    // Scroll to alert
+    container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    
     // Auto-dismiss dopo 5 secondi
     setTimeout(() => {
-        const alert = container.querySelector('.alert');
+        const alert = document.getElementById(alertId);
         if (alert) {
-            const bsAlert = new bootstrap.Alert(alert);
-            bsAlert.close();
+            try {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            } catch (e) {
+                alert.remove();
+            }
         }
     }, 5000);
 }
@@ -144,11 +207,11 @@ function showConfirmModal(title, message, onConfirm) {
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title">${title}</h5>
+                        <h5 class="modal-title">${escapeHtml(title)}</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        ${message}
+                        ${escapeHtml(message)}
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
@@ -227,7 +290,10 @@ function validateDatetime(datetime) {
  * @returns {string}
  */
 function formatDate(date, includeTime = false) {
-    const d = new Date(date);
+    if (!date) return '';
+    const d = new Date(date.replace(' ', 'T'));
+    if (isNaN(d)) return date;
+    
     const options = { 
         year: 'numeric', 
         month: '2-digit', 
@@ -248,7 +314,9 @@ function formatDate(date, includeTime = false) {
  * @returns {string} - Orario in formato HH:MM
  */
 function formatTime(datetime) {
+    if (!datetime) return '';
     const d = new Date(datetime.replace(' ', 'T'));
+    if (isNaN(d)) return '';
     return d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -283,7 +351,7 @@ function getMonthName(date) {
  */
 async function getCurrentUser() {
     try {
-        const response = await apiCall('../backend/api.php/current-user', 'GET');
+        const response = await apiCall('/current-user', 'GET');
         return response.user;
     } catch (error) {
         console.error('Error getting current user:', error);
@@ -301,7 +369,7 @@ async function getCurrentUser() {
  * @returns {Promise<object>} - Risultato operazione
  */
 async function createPrenotazione(data) {
-    return await apiCall('../backend/api.php/prenotazioni', 'POST', data);
+    return await apiCall('/prenotazioni', 'POST', data);
 }
 
 /**
@@ -311,7 +379,7 @@ async function createPrenotazione(data) {
  * @returns {Promise<object>} - Risultato operazione
  */
 async function updatePrenotazione(id, data) {
-    return await apiCall(`../backend/api.php/prenotazioni/${id}`, 'PUT', data);
+    return await apiCall(`/prenotazioni/${id}`, 'PUT', data);
 }
 
 /**
@@ -320,7 +388,7 @@ async function updatePrenotazione(id, data) {
  * @returns {Promise<object>} - Risultato operazione
  */
 async function deletePrenotazione(id) {
-    return await apiCall(`../backend/api.php/prenotazioni/${id}`, 'DELETE');
+    return await apiCall(`/prenotazioni/${id}`, 'DELETE');
 }
 
 /**
@@ -331,7 +399,7 @@ async function deletePrenotazione(id) {
  * @returns {Promise<array>} - Lista prenotazioni
  */
 async function getSalaPrenotazioni(nomeSala, nomeSettore, date) {
-    const url = `../backend/api.php/sala/${encodeURIComponent(nomeSala)}/week?date=${date}&settore=${encodeURIComponent(nomeSettore)}`;
+    const url = `/sala/${encodeURIComponent(nomeSala)}/week?date=${date}&settore=${encodeURIComponent(nomeSettore)}`;
     const response = await apiCall(url, 'GET');
     return response.prenotazioni || [];
 }
@@ -343,7 +411,7 @@ async function getSalaPrenotazioni(nomeSala, nomeSettore, date) {
  * @returns {Promise<array>} - Lista impegni
  */
 async function getUserImpegni(email, date) {
-    const url = `../backend/api.php/user/${encodeURIComponent(email)}/week?date=${date}`;
+    const url = `/user/${encodeURIComponent(email)}/week?date=${date}`;
     const response = await apiCall(url, 'GET');
     return response.impegni || [];
 }
@@ -361,7 +429,7 @@ async function getUserImpegni(email, date) {
  * @returns {Promise<object>} - Risultato operazione
  */
 async function rispondiInvito(prenotazioneId, email, risposta, motivazione = null) {
-    const url = `../backend/api.php/inviti/${prenotazioneId}/${encodeURIComponent(email)}/risposta`;
+    const url = `/inviti/${prenotazioneId}/${encodeURIComponent(email)}/risposta`;
     return await apiCall(url, 'POST', { risposta, motivazione });
 }
 
@@ -375,8 +443,9 @@ async function rispondiInvito(prenotazioneId, email, risposta, motivazione = nul
  * @returns {string} - Stringa sanitizzata
  */
 function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
     const div = document.createElement('div');
-    div.textContent = str;
+    div.textContent = String(str);
     return div.innerHTML;
 }
 
@@ -386,6 +455,8 @@ function escapeHtml(str) {
 
 // Quando il DOM è pronto
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('App.js initialized');
+    
     // Aggiungi event listener per pulsanti logout globali
     const logoutButtons = document.querySelectorAll('[data-action="logout"]');
     logoutButtons.forEach(btn => {

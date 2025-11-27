@@ -11,14 +11,16 @@
 
 /**
  * Ottiene il lunedì della settimana per una data specifica
- * @param {Date} date - Data di riferimento
+ * @param {Date|string} date - Data di riferimento
  * @returns {Date} - Lunedì della settimana
  */
 function getMondayOfWeek(date) {
     const d = new Date(date);
     const day = d.getDay();
     const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
-    return new Date(d.setDate(diff));
+    d.setDate(diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
 }
 
 /**
@@ -58,6 +60,9 @@ function getWeekRange(date) {
  * @returns {string} - Data formattata
  */
 function formatDateISO(date) {
+    if (typeof date === 'string') {
+        date = new Date(date);
+    }
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -99,16 +104,13 @@ function isToday(date) {
 }
 
 /**
- * Verifica se una data è nel passato
+ * Verifica se una data/ora è nel passato
  * @param {Date} date - Data da verificare
  * @returns {boolean} - True se è nel passato
  */
 function isPast(date) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const checkDate = new Date(date);
-    checkDate.setHours(0, 0, 0, 0);
-    return checkDate < today;
+    const now = new Date();
+    return date < now;
 }
 
 // ==========================================
@@ -177,7 +179,7 @@ function getBookingsInSlot(datetime, prenotazioni) {
     for (const pren of prenotazioni) {
         const prenStart = new Date(pren.data_ora_inizio.replace(' ', 'T'));
         const prenEnd = new Date(prenStart);
-        prenEnd.setHours(prenEnd.getHours() + pren.durata);
+        prenEnd.setHours(prenEnd.getHours() + parseInt(pren.durata));
         
         // Se lo slot è tra inizio e fine della prenotazione
         if (slotTime >= prenStart && slotTime < prenEnd) {
@@ -253,7 +255,7 @@ function renderCalendarGrid(weekDays, prenotazioni, options = {}) {
                 if (prenStartTime === time) {
                     html += `
                         <div class="booking-block" data-booking-id="${booking.id}">
-                            <strong>${booking.attivita || 'Prenotazione'}</strong><br>
+                            <strong>${escapeHtml(booking.attivita || 'Prenotazione')}</strong><br>
                             <small>${time} - ${booking.durata}h</small>
                         </div>
                     `;
@@ -279,6 +281,10 @@ function formatWeekRange(start, end) {
     const monthNames = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
                         'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
     
+    // Assicurati che siano oggetti Date
+    if (typeof start === 'string') start = new Date(start);
+    if (typeof end === 'string') end = new Date(end);
+    
     if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
         return `${start.getDate()}-${end.getDate()} ${monthNames[start.getMonth()]} ${start.getFullYear()}`;
     } else if (start.getFullYear() === end.getFullYear()) {
@@ -288,12 +294,14 @@ function formatWeekRange(start, end) {
     }
 }
 
-// ==========================================
-// EXPORT (se necessario per moduli)
-// ==========================================
-
-// Se usato come modulo ES6:
-// export { getMondayOfWeek, getWeekDays, getWeekRange, formatDateISO, 
-//          getPreviousWeek, getNextWeek, isToday, isPast, generateTimeSlots, 
-//          combineDatetime, isSlotAvailable, getBookingsInSlot, renderCalendarHeader, 
-//          renderCalendarGrid, formatWeekRange };
+/**
+ * Helper per escape HTML in calendar.js
+ * @param {string} str - Stringa da sanitizzare
+ * @returns {string} - Stringa sanitizzata
+ */
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}

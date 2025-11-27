@@ -9,7 +9,7 @@
 require_once __DIR__ . '/../common/auth.php';
 
 // Se già autenticato, redirect alla home
-session_start();
+initSession();
 if (isLoggedIn()) {
     header('Location: home.php');
     exit;
@@ -36,7 +36,7 @@ $redirect = isset($_GET['redirect']) ? $_GET['redirect'] : 'home.php';
                     <div class="card-body p-5">
                         <!-- Logo / Titolo -->
                         <div class="text-center mb-4">
-                            <h2 class="fw-bold">Play Room Planner</h2>
+                            <h2 class="fw-bold"><i class="bi bi-diagram-3-fill text-primary"></i> Play Room Planner</h2>
                             <p class="text-muted">Accedi al tuo account</p>
                         </div>
 
@@ -84,10 +84,10 @@ $redirect = isset($_GET['redirect']) ? $_GET['redirect'] : 'home.php';
 
                         <!-- Credenziali demo -->
                         <div class="mt-4 p-3 bg-light rounded">
-                            <p class="mb-2"><strong>Account di test:</strong></p>
-                            <small class="d-block">Responsabile Musica: supermario@bbldrizzy.it / 12345678</small>
-                            <small class="d-block">Docente: luca@bbldrizzy.it / 12345678</small>
-                            <small class="d-block">Allievo: carlotta.peda@bbldrizzy.it / password</small>
+                            <p class="mb-2"><strong><i class="bi bi-info-circle"></i> Account di test:</strong></p>
+                            <small class="d-block">Responsabile Musica: <code>supermario@bbldrizzy.it</code> / <code>12345678</code></small>
+                            <small class="d-block">Docente: <code>luca@bbldrizzy.it</code> / <code>12345678</code></small>
+                            <small class="d-block">Allievo: <code>carlotta.peda@bbldrizzy.it</code> / <code>password</code></small>
                         </div>
                     </div>
                 </div>
@@ -125,9 +125,8 @@ $redirect = isset($_GET['redirect']) ? $_GET['redirect'] : 'home.php';
         document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const email = document.getElementById('email').value;
+            const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value;
-            const alertContainer = document.getElementById('alertContainer');
             
             // Validazione client-side
             if (!email || !password) {
@@ -141,11 +140,15 @@ $redirect = isset($_GET['redirect']) ? $_GET['redirect'] : 'home.php';
             }
             
             try {
+                showLoading();
+                
                 // Chiamata API login
-                const response = await apiCall('../backend/api.php/login', 'POST', {
+                const response = await apiCall('/login', 'POST', {
                     email: email,
                     password: password
                 });
+                
+                console.log('Login response:', response);
                 
                 if (response.success) {
                     showAlert('Login effettuato con successo! Reindirizzamento...', 'success');
@@ -158,24 +161,12 @@ $redirect = isset($_GET['redirect']) ? $_GET['redirect'] : 'home.php';
                     showAlert(response.error || 'Credenziali non valide', 'danger');
                 }
             } catch (error) {
+                console.error('Login error:', error);
                 showAlert('Errore di connessione: ' + error.message, 'danger');
+            } finally {
+                hideLoading();
             }
         });
-
-        /**
-         * Mostra un alert nella pagina
-         * @param {string} message Messaggio da mostrare
-         * @param {string} type Tipo di alert (success, danger, warning, info)
-         */
-        function showAlert(message, type) {
-            const alertContainer = document.getElementById('alertContainer');
-            alertContainer.innerHTML = `
-                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                    ${message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>
-            `;
-        }
     </script>
 </body>
 </html>
